@@ -1,0 +1,23 @@
+# X4 — bounded native LUT4 tile and palette cache
+
+## Implementation
+
+Portable core reads v1 tile pack assets 1 and 2 from the phase store. On view open it validates exact index/pixel lengths, strict ascending big-endian tile IDs and range; lookup binary-searches the cart index only on a tile miss. Every acquisition checks the live store generation, including cache hits. No CD fallback. A change of phase invalidates metadata. All views must be opened through the API; do not construct or mutate handles, reset the store or reinitialize its backing cart while consumers survive.
+
+Two independent four-way set-associative caches: 512 tile slots (128 sets) with 128 bytes each, and 64 full RGB555 LUT slots (16 sets) with 32 bytes each. Hashes choose sets; exact IDs or all 16 words establish equality. Round-robin replacement only among unpinned slots, empty before occupied. One tile can be reused with many palettes. Fixed reservation 67,584 bytes (66 KiB) plus up to 24 bytes for alignment in the SDK adapter. Metadata sizeof on tested 64-bit host is 6,496 bytes; target map pending. These are initial experiment sizes, not a measured working set or a commitment to final layout. A four-way set can be exhausted even if other sets have empty slots: return FULL, count blocked requests, and reject/discard the prepared frame. Never silently drop sprites. If traces show conflict pressure, consider a victim cache or a different placement algorithm/size. 512 slots may be insufficient for the worst screen; measure before promotion.
+
+## Safety and SDK integration
+
+The pinned LibSaturn header (dbc679a3ac213cbb6a975030212c96b21bd684ad, include/saturn/vdp1.h) provides sat_vdp1_vram_reserve (one-way allocation until sat_init) and sat_vdp1_vram_write (waits for last submitted list before any overwrite). Adapter reserves aligned slots once and constructs sat_vdp1_texture_t from byte offsets / 8. It intentionally uses the fenced write API, not unfenced sat_vdp1_vram_address. This may serialize CPU/GPU work on misses; profile the stalls before considering a more advanced overlap strategy.
+
+Master calls kof_tile_cache_begin before building ONE list, gets texture/palette bindings while building, and calls kof_tile_cache_end ONLY after successful submission or actual discard. No second prepared list, no asynchronous uploads, no direct texture mutation by another subsystem. Current-list pins prevent a pending draw command's pixels or LUT being replaced before submission. Fenced SDK writes protect the previous submitted list after pins are cleared, including at phase changes. This is a caller/backend contract, not an implemented hardware completion detector or complete renderer integration. If actual submission status is ambiguous, keep pins and recover explicitly.
+
+The LUT input is already native-endian Saturn RGB555 (pen zero zero, every other word MSB set). Neo Geo palette conversion, dark-bit approximation, pen 15 end-code disabling, flipping, shrinking, priority/line limits and raster changes need the renderer. No assumption that FIX data is already a VDP2 tilemap. Caller must protect returned bindings and drain committed consumers before cart phase replacement; use actual draw completion, not VBlank count.
+
+## Host evidence
+
+The portable core and existing asset store were compiled together locally with cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror; test passed. Also compiled and ran with AddressSanitizer and UndefinedBehaviorSanitizer; pass. The test validates sorted index, missing ID, cache hit without cart read or VRAM rewrite, same tile/different LUT, five colliding IDs for one four-way set (refusal while pinned), failed write/retry after ending list, phase-generation invalidation and malformed duplicate index. It uses a memory-backed synthetic cart and VRAM, not target hardware fencing. SDK adapter was authored against pinned headers, not compiled or linked with installed SDK. CTest registration added; full suite/CI not observed in this turn.
+
+## Next
+
+Collect actual LSPC visible-tile/palette traces at the host oracle, separate phase-residency requirements from simultaneous per-list VRAM requirements and compare held-out fights. Build trace-driven renderer IR and replay with native tiles, convert colors, and verify actual VDP1 pen 0/15 semantics, zoom masks, clipping and order. Measure misses, blocked capacity, copy bytes, draw waits and timeouts. Run a minimal Saturn disc/probe using synthetic tiles to verify colors and fenced reuse, then Ymir and physical hardware separately. No actual ROMs, target toolchain or emulator run here. No game assets committed.

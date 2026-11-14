@@ -40,3 +40,5 @@ Experimental [local data register caching](docs/X2_REGISTER_CACHE.md): `-DKOF_OP
 [X3 phase asset residency](docs/X3_ASSET_RESIDENCY.md): heap-free 4 MiB cart arena, generation handles, bounded loading, CRC validation and combat lock. Portable core tests pass; the installed-SDK adapter is not target-validated yet.
 
 [Native tile pack converter](docs/X3_TILE_PACK.md): local selected C/FIX ROM tiles converted to packed 4bpp, with aligned assets and CRC descriptors for the cart store. Synthetic reference tests pass; actual game tiles and target uploads remain unverified.
+
+[X4 native tile cache](docs/X4_TILE_CACHE.md): independent LUT4 pattern/LUT slots, binary lookup of resident tile packs, current-list pins and fenced SDK writes. Synthetic core tests pass; target integration remains open.
