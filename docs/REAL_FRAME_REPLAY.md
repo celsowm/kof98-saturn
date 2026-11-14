@@ -201,4 +201,4 @@ Windows:
     cmake --build build-saturn --target kof_sequence_replay_disc -j 6
     python scripts/kof_ymir.py --frames 2400 --out local/ymir/live
 
-This is a new trace, so the old KFR2 alone is insufficient to exercise the input decoder. The original 600-frame packs need not be regenerated. Target compilation, memory budget, cadence and pixel parity remain pending. The probe still labels >=600 total submissions as full_sequence_submitted; for this mode use live_frame_count and verified count instead (the trace loops after 16).
+This is a new trace, so the old KFR2 alone is insufficient to exercise the input decoder. The original 600-frame packs need not be regenerated. Target compilation, memory budget, cadence and pixel parity remain pending. The probe reports the live sequence length and whether that many submissions completed. The trace loops after 16. Run python tests/test_live_sequence.py for a ROM-free parser/delta/hash regression before capturing.

@@ -162,7 +162,8 @@ def main():
         state["app_sha256"]=hashlib.sha256(app.read_bytes()).hexdigest()
         state["probe_sha256"]=hashlib.sha256(probe.read_bytes()).hexdigest()
         state["submitted_per_nominal_second_including_loads"]=60*state["kof_sequence_frames"]/state["emulated_fields"]
-        state["full_sequence_submitted"]=state["kof_sequence_frames"]>=600
+        state["sequence_length"]=state.get("kof_sequence_live_frame_count",600)
+        state["full_sequence_submitted"]=state["kof_sequence_frames"]>=state["sequence_length"]>0
         state["note"]="Submissions include repeated loops; not pixel-distinct FPS or physical console timing. Injection is not optical boot."
         (out/"summary.json").write_text(json.dumps(state,indent=2)+"\n")
         print(json.dumps(state,indent=2))

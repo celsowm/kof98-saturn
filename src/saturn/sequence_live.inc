@@ -184,7 +184,7 @@ static unsigned emit_live(sat_sprite_batch_window_t *win,const kof_strip_builder
 }
 int main(void){
     const sat_video_config_t cfg={320,224,SAT_VIDEO_NTSC,SAT_VIDEO_INTERLACE_NONE};
-    kof_sequence_stage=1;
+    kof_sequence_stage=1;kof_sequence_clip=0;
     SAT_PANIC_IF_ERROR(sat_init(&cfg));
     SAT_PANIC_IF_ERROR(sat_vdp1_set_frame_mode(SAT_VDP1_FRAME_ON_SUBMIT));
     kof_loading_init(&loading);kof_loading_phase(&loading,"INITIALIZING CD",1,1);
