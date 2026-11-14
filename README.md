@@ -32,3 +32,5 @@ An independent [bounded CFG sharing candidate](docs/X2_CFG_DEDUP.md) is availabl
 Experimental [local dead flag elimination](docs/X2_FLAG_LIVENESS.md): `-DKOF_OPT_FLAGS=ON`, default OFF. Measure separately from CFG sharing.
 
 Experimental [fixed counter batching](docs/X2_CYCLE_BATCH.md): `-DKOF_OPT_CYCLES=ON`, default OFF. Measure separately from flags and CFG sharing.
+
+Experimental [local data register caching](docs/X2_REGISTER_CACHE.md): `-DKOF_OPT_REGCACHE=ON`, default OFF. Measure independently from flags, cycles and CFG.
