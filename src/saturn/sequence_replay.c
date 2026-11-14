@@ -2,6 +2,13 @@
 #include <saturn/core.h>
 #include <saturn/video.h>
 #include <saturn/vdp1.h>
+#include <saturn/sprite_batch.h>
+#ifndef KOF_SEQUENCE_BATCH
+#define KOF_SEQUENCE_BATCH 1
+#endif
+#ifndef KOF_SEQUENCE_BATCH_PRECLIP_OPT
+#define KOF_SEQUENCE_BATCH_PRECLIP_OPT 0
+#endif
 #include <saturn/cd_mount.h>
 #include "kof98/saturn_asset_store.h"
 #include "loading_screen.h"
@@ -42,6 +49,16 @@ int main(void){
         sat_panic(SAT_ERR_CAPACITY,__FILE__,__LINE__);
     SAT_PANIC_IF_ERROR(sat_vdp1_vram_reserve(kof_sequence_vram_requested,&base));
     base=(base+31u)&~31u;
+#if KOF_SEQUENCE_BATCH
+    /* All replay records are plain LUT4 sprites with four possible flip
+     * combinations. Prepare SDK command prefixes once; addresses and size
+     * remain per record. Pivot zero preserves the original top-left origin. */
+    sat_sprite_frame_t prefixes[4];
+    for(unsigned flip=0;flip<4;++flip)
+        SAT_PANIC_IF_ERROR(sat_sprite_frame_init_raw(&prefixes[flip],
+            (uint16_t)(base/8u),8,1,SAT_VDP1_TEXTURE_LUT4,
+            (uint16_t)(base/8u),(uint16_t)(flip<<5),0,0));
+#endif
     for(;;){
       for(unsigned ci=0;ci<clips;++ci){
         const seq_clip *c=&seq_clips[ci];
@@ -79,14 +96,33 @@ int main(void){
             SAT_PANIC_IF_ERROR(sat_begin_frame());
             sat_vdp1_command_stats_t cs;SAT_PANIC_IF_ERROR(sat_vdp1_command_stats(&cs));
             check((unsigned)cs.used+f->count+1u<=cs.capacity);
+#if KOF_SEQUENCE_BATCH
+            sat_sprite_batch_window_t win;
+            const uint32_t options=SAT_SPRITE_BATCH_NO_CULL |
+                (KOF_SEQUENCE_BATCH_PRECLIP_OPT?0u:SAT_SPRITE_BATCH_KEEP_PRECLIP);
+            SAT_PANIC_IF_ERROR(sat_sprite_batch_begin(&win,f->count,options));
+#endif
             for(unsigned j=0;j<f->count;++j){
                 const uint16_t *d=commands[j];
                 uint32_t t=(uint32_t)d[4]*8u,l=(uint32_t)d[5]*8u;
                 check(d[0]<320&&d[1]<224&&(d[2]==8||d[2]==16)&&d[3]&&d[3]<=16&&d[1]+d[3]<=224&&t+(uint32_t)d[2]*d[3]/2u<=c->atlas_bytes&&l+32u<=c->atlas_bytes&&!(d[6]&~0x60u)&&d[7]==0);
+#if KOF_SEQUENCE_BATCH
+                sat_sprite_frame_t sprite=prefixes[d[6]>>5];
+                sprite.srca=(uint16_t)((base+t)/8u);
+                sprite.colr=(uint16_t)((base+l)/8u);
+                sprite.size=(uint16_t)(((d[2]/8u)<<8)|d[3]);
+                check(sat_sprite_batch_emit(&win,&sprite,d[0],d[1])==1);
+#else
                 const sat_vdp1_texture_t tex={.srca=(uint16_t)((base+t)/8u),.palette=(uint16_t)((base+l)/8u),.width=d[2],.height=d[3],.valid=1,.format=SAT_VDP1_TEXTURE_LUT4};
                 const sat_sprite_cmd_t cmd={.x=((int32_t)d[0]-160)*SAT_FX16_ONE,.y=((int32_t)d[1]-112)*SAT_FX16_ONE,.width=d[2],.height=d[3],.texture=&tex,.flags=d[6]};
                 SAT_PANIC_IF_ERROR(sat_draw_sprite(&cmd));
+#endif
             }
+#if KOF_SEQUENCE_BATCH
+            sat_sprite_batch_stats_t stats;
+            SAT_PANIC_IF_ERROR(sat_sprite_batch_end(&win,&stats));
+            check(stats.submitted==f->count&&!stats.culled&&!stats.dropped&&!stats.invalid);
+#endif
             SAT_PANIC_IF_ERROR(sat_end_frame());
             SAT_PANIC_IF_ERROR(sat_wait_vblank());
             kof_sequence_index=c->first+i;kof_sequence_commands=f->count;++kof_sequence_frames;
