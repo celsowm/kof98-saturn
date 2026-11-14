@@ -31,6 +31,10 @@ kof_check_pin("${ng}" "a47ee3fe09dc46d1f2b86c36ec972b43b35ebf62")
 
 set(NEOGEORECOMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 add_subdirectory("${ng}" "${CMAKE_CURRENT_BINARY_DIR}/neogeorecomp" EXCLUDE_FROM_ALL)
+# Upstream platform.c uses MSVC's pragma comment(lib), ignored by MinGW.
+if(WIN32)
+  target_link_libraries(neogeorecomp PUBLIC dbghelp)
+endif()
 # Replace just the desktop execution source. Keep the upstream checkout pristine.
 set(gen "${CMAKE_CURRENT_BINARY_DIR}/generated")
 file(MAKE_DIRECTORY "${gen}")
