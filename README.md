@@ -1,18 +1,23 @@
 # KOF98 Saturn
 
-An experimental native Sega Saturn port of The King of Fighters '98, using the static 68000 recompilation work of [KOF98 Recomp](https://github.com/danilopaulinodasilva/kof98recomp) and the [LibSaturn](https://github.com/celsowm/libsaturn) SDK.
+Experimental native Sega Saturn port of The King of Fighters '98, using [KOF98 Recomp](https://github.com/danilopaulinodasilva/kof98recomp) and [LibSaturn](https://github.com/celsowm/libsaturn).
 
-**Status: feasibility research. Not playable.** The first objective is to establish that the original game logic fits and runs within SH-2 memory and timing budgets. No emulator or hardware performance claim is made yet.
+**Status: feasibility research — not playable.** The initial target is NTSC 320×224 with original game timing and a 4 MiB RAM cartridge. The first gate is code size and execution speed, not graphics.
 
-The target is NTSC 320×224, original game timing, initially with a 4 MiB RAM expansion cartridge. The disc is built locally from legally obtained AES `kof98h` and Neo Geo BIOS dumps. No SNK ROMs, derived source, traces, graphics, audio, BIOS or game binaries are distributed here.
+- [Engineering plan](docs/PORTING_PLAN.md)
+- [Contributor instructions](AGENTS.md)
 
-See [the porting plan](docs/PORTING_PLAN.md) for the engineering roadmap.
+## ROM-free host tests
+
+```sh
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
+python3 tools/dispatch_budget.py
+```
+
+The sparse dispatcher is a standalone seed, not yet wired into neogeorecomp. No ROMs are necessary for the synthetic tests. Build the eventual game locally with legally obtained AES kof98h and Neo Geo BIOS dumps. No SNK ROMs, game assets, generated game code, traces, BIOS or binaries are distributed here.
 
 ## Credits
 
-- Danilo P. da Silva — KOF98 Recomp and Neo Geo toolkit improvements.
-- sp00nznet — upstream neogeorecomp static recompilation toolkit.
-- LibSaturn contributors — native Saturn SDK.
-- SNK — original game and intellectual property.
-
-Unofficial fan research project; not affiliated with SNK or Sega.
+Danilo P. da Silva (KOF98 Recomp and toolkit improvements), sp00nznet (neogeorecomp), LibSaturn contributors, and SNK (original game and intellectual property). Unofficial fan research; not affiliated with SNK or Sega.
