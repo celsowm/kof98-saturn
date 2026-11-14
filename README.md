@@ -17,7 +17,7 @@ ctest --test-dir build --output-on-failure
 python3 tools/dispatch_budget.py
 ```
 
-The sparse dispatcher is a standalone seed, not yet wired into neogeorecomp. No ROMs are necessary for the synthetic tests. Build the eventual game locally with legally obtained AES kof98h and Neo Geo BIOS dumps. No SNK ROMs, game assets, generated game code, traces, BIOS or binaries are distributed here.
+The sparse and paged dispatchers are standalone prototypes, not yet wired into neogeorecomp. See [X0 dispatch experiments](docs/X0_DISPATCH_REPORT.md) for synthetic host checks and target caveats. No ROMs are necessary for the synthetic tests. Build the eventual game locally with legally obtained AES kof98h and Neo Geo BIOS dumps. No SNK ROMs, game assets, generated game code, traces, BIOS or binaries are distributed here.
 
 ## Credits
 

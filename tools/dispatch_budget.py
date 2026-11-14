@@ -8,8 +8,12 @@ def estimate(entries: int, banks: int, pointer_bytes: int) -> dict:
     dense = ((1 + banks) * 0x80000 + 0x10000) * pointer_bytes
     # uint32_t key followed by properly aligned native pointer.
     stride = ((4 + pointer_bytes - 1) // pointer_bytes + 1) * pointer_bytes
-    return {"dense_bytes": dense, "sparse_bytes": entries * stride,
-            "entry_stride": stride}
+    result = {"dense_bytes": dense, "sparse_bytes": entries * stride,
+              "entry_stride": stride}
+    pages = (1 + banks) * 256 + 32
+    if entries <= 65535:
+        result["paged_bytes"] = 2 * (pages + 1) + entries * (2 + pointer_bytes)
+    return result
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
