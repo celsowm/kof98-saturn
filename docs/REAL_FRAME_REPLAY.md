@@ -27,4 +27,29 @@ Inspect report.json and reference.ppm/replay.ppm. Zero mismatch is required. If 
     cmake -S . -B build-saturn -DKOF_FRAME_DIR=E:/projetos/kof98-saturn/local/fight-frame
     cmake --build build-saturn --target kof_frame_replay_disc --parallel 6
 
-Open build-saturn/disc/kof_frame_replay.cue with the same Mednafen launcher and extram4. Compare to the sprite-only reference, not full-reference.png which includes FIX. Read replay stage/frame counters via map if needed. No ROM-derived source, capture, binary, PNG or disc may be committed. The capture path, converter, and replay target still require actual local validation; no game screenshot or timing claimed here.
+Open build-saturn/disc/kof_frame_replay.cue with the same Mednafen launcher and extram4. Compare to the sprite-only reference, not full-reference.png which includes FIX. Read replay stage/frame counters via map if needed. No ROM-derived source, capture, binary, PNG or disc may be committed. The capture path, converter, and replay target were validated for the single frame documented below; no timing or physical-console claim.
+
+
+## First real frame acceptance — 2026-11-14
+
+User-reported Windows build and Mednafen 1.32.1 run, pinned upstream, AES set, frame 4350 of tests/start_fight.txt. The original screenshot shows Kyo versus Yamazaki and the replay screenshot visually shows the matching sprite-layer scene without FIX. No game images or ROM-derived outputs are stored in the repository.
+
+| Metric | Observed |
+|---|---:|
+| Scanline spans | 10,599 |
+| Coalesced strips | 707 |
+| Fully transparent strips removed | 45 |
+| Emitted sprites | 662 |
+| Native sprites | 553 |
+| Exact transformed variants | 109 |
+| Unique source tile IDs | 543 |
+| Unique atlas patterns | 593 |
+| Unique atlas palettes | 34 |
+| Atlas bytes (reported before final padding) | 71,376 |
+| Host RGB555 pixel mismatches | 0 / 71,680 |
+| Backdrop colors | 1 |
+| Saturn initialized application bytes | 47,416 |
+
+The host comparison is between the sprite-only upstream raster (quantized to RGB555) and final atlas command replay, not a pixel comparison of the emulator framebuffer. The Saturn image booted with 4 MiB expansion and visually reproduced the frame. FIX/HUD remains absent by design. Optional Mednafen SBI, override configuration and cheat-file warnings did not block boot.
+
+The original static atlas capacity is not evidence of dynamic gameplay residency. Next gates: add FIX replay with correct palette and raster semantics; capture multiple frames and measure texture/CLUT churn, list sizes, cache conflicts and upload bytes; then obtain target draw/CPU timing, and eventually integrate game execution. Keep a VDP1-only reference path before experimenting with moving suitable layers to VDP2.
