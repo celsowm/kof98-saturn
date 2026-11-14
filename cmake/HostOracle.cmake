@@ -89,12 +89,31 @@ file(GLOB rom_inputs CONFIGURE_DEPENDS "${KOF_ROM_DIR}/*.bin" "${KOF_ROM_DIR}/*.
 add_custom_command(OUTPUT ${routines} "${legacy}" "${common}"
   COMMAND $<TARGET_FILE:kof_local_recomp> --rom-path "${KOF_ROM_DIR}" --out "${gen}" --files 16 ${entry_args}
   DEPENDS kof_local_recomp ${entry_dep} ${rom_inputs} VERBATIM)
+option(KOF_DEDUP_SUFFIX "Experimental exact suffix sharing in local generated C" OFF)
+set(active_gen "${gen}")
+if(KOF_DEDUP_SUFFIX)
+  set(active_gen "${gen}/dedup")
+  set(dedup_routines "")
+  foreach(raw IN LISTS routines)
+    get_filename_component(unit "${raw}" NAME)
+    list(APPEND dedup_routines "${active_gen}/${unit}")
+  endforeach()
+  set(dedup_table "${active_gen}/recomp_table.c")
+  set(dedup_common "${active_gen}/recomp_common.h")
+  add_custom_command(OUTPUT ${dedup_routines} "${dedup_table}" "${dedup_common}" "${active_gen}/dedup_report.json"
+    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/dedup_routines.py" "${gen}" "${active_gen}" --parts 16
+    DEPENDS ${routines} "${legacy}" "${common}" "${PROJECT_SOURCE_DIR}/tools/dedup_routines.py" "${PROJECT_SOURCE_DIR}/tools/pack_dispatch.py" VERBATIM)
+  set(routines "${dedup_routines}")
+  set(legacy "${dedup_table}")
+  set(common "${dedup_common}")
+  set(paged "${active_gen}/kof_paged_table.c")
+endif()
 add_custom_command(OUTPUT "${paged}"
   COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/pack_dispatch.py" "${legacy}" "${paged}"
   DEPENDS "${legacy}" "${PROJECT_SOURCE_DIR}/tools/pack_dispatch.py" VERBATIM)
 add_executable(kof_host_paged "${PROJECT_SOURCE_DIR}/src/host/paged_main.c"
   "${KOF_UPSTREAM_DIR}/src/game.c" ${routines} "${paged}" "${common}")
-target_include_directories(kof_host_paged PRIVATE "${KOF_UPSTREAM_DIR}/src" "${gen}")
+target_include_directories(kof_host_paged PRIVATE "${KOF_UPSTREAM_DIR}/src" "${active_gen}")
 target_compile_definitions(kof_host_paged PRIVATE KOF98_PLAYER KOF98_ASSET_DIR="${KOF_UPSTREAM_DIR}/assets")
 target_link_libraries(kof_host_paged PRIVATE neogeorecomp kof_dispatch)
 if(MSVC)

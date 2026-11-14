@@ -24,3 +24,5 @@ The sparse and paged dispatchers have ROM-free tests and an optional source-leve
 Danilo P. da Silva (KOF98 Recomp and toolkit improvements), sp00nznet (neogeorecomp), LibSaturn contributors, and SNK (original game and intellectual property). Unofficial fan research; not affiliated with SNK or Sega.
 
 The [offline dispatch packer](docs/X1_GENERATED_DISPATCH.md) converts locally generated upstream tables to immutable paged C arrays. See the [host paged oracle build](docs/HOST_PAGED_ORACLE.md) for the new local integration; real ROM and Saturn verification remain pending.
+
+Experimental [exact suffix sharing](docs/X2_SUFFIX_DEDUP.md) is available with `-DKOF_DEDUP_SUFFIX=ON` in a separate local host build. It is off by default until real-game parity and SH-2 size/timing are measured.

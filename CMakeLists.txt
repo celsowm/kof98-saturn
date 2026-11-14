@@ -20,6 +20,7 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
   if(Python3_Interpreter_FOUND)
     add_test(NAME pack_dispatch COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pack_dispatch.py)
     add_test(NAME host_exec_adapter COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_adapt_host_exec.py)
+    add_test(NAME dedup_routines COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_dedup_routines.py)
   endif()
 endif()
 
