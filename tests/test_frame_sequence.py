@@ -44,6 +44,7 @@ class TestReplay(unittest.TestCase):
                     self.assertEqual((x,y,w,h,flags,reserved),(*a[:4],a[-1],0))
                     self.assertEqual(payload[t*8:t*8+w*h//2],atlas[a[4]:a[4]+w*h//2])
                     self.assertEqual(payload[l*8:l*8+32],atlas[a[5]:a[5]+32])
+            self.assertLessEqual(ps.VRAM+24,512*1024-2*(64+16)*1024-32)
             original=ps.VRAM
             try:
                 ps.VRAM=1

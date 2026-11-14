@@ -9,7 +9,9 @@ from pathlib import Path
 from pack_frame import TileSource, compile_frame, ppm
 
 CART=4*1024*1024
-VRAM=384*1024
+# Pinned LibSaturn uses 2*(64 KiB commands + 16 KiB Gouraud) + 32 B root.
+# Leave ~32 KiB for SDK allocations and atlas alignment.
+VRAM=320*1024
 MAX_DRAWS=2048
 CMD=struct.Struct(">8H")
 
@@ -43,7 +45,7 @@ class Clip:
             p=atlas[t:t+w*h//2]; lut=atlas[l:l+32]
             if len(p)!=w*h//2 or len(lut)!=32: raise ValueError("bad atlas offsets")
             lt=alloc(lut,32);tx=alloc(p,8)
-            if len(new)>VRAM: return False
+            if align(len(new),32)>VRAM: return False
             commands.extend(CMD.pack(x,y,w,h,tx//8,lt//8,f,0))
         if align(len(new),32)+len(self.commands)+len(commands)>CART: return False
         self.atlas=new;self.locations=loc
@@ -100,7 +102,7 @@ def build(captures,roms,out,start,count):
             w=csv.DictWriter(f,fieldnames=list(metrics[0]));w.writeheader();w.writerows(metrics)
         report=dict(frames=count,first_frame=start,last_frame=start+count-1,clips=len(clips),
                     disc_payload_bytes=total,max_clip_bytes=max(c[1] for c in clips),
-                    max_clip_atlas_bytes=max(c[3] for c in clips),peak_commands=max(r["commands"] for r in metrics),
+                    max_clip_atlas_bytes=max(c[3] for c in clips),atlas_budget_bytes=VRAM,peak_commands=max(r["commands"] for r in metrics),
                     mean_commands=sum(r["commands"] for r in metrics)/count,
                     peak_fix_commands=max(r["fix_commands"] for r in metrics),
                     unique_patterns=len(all_p),unique_palettes=len(all_l),

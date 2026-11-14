@@ -129,7 +129,7 @@ def build(capture,roms,out):
     print(json.dumps(report,indent=2))
     if mismatches: raise ValueError("oracle mismatch; inspect PPM files")
     if len(set(bg))!=1: raise ValueError("raster backdrop unsupported for this first replay")
-    if not draws or len(draws)>2048 or len(atlas)>384*1024: raise ValueError("static frame exceeds initial replay budget")
+    if not draws or len(draws)>2048 or ((len(atlas)+31)&~31)>320*1024: raise ValueError("static frame exceeds initial replay budget")
     atlas.extend(bytes((-len(atlas))%32))
     (out/"FRAME.BIN").write_bytes(atlas)
     header='#ifndef KOF_FRAME_MANIFEST_H\n#define KOF_FRAME_MANIFEST_H\n'

@@ -14,6 +14,7 @@ static kof_saturn_assets assets;
 static _Alignas(32) uint8_t scratch[8192];
 static _Alignas(32) uint16_t commands[2048][8];
 volatile uint32_t kof_sequence_stage,kof_sequence_frames,kof_sequence_clip,kof_sequence_index,kof_sequence_commands;
+volatile uint32_t kof_sequence_vram_free,kof_sequence_vram_requested;
 static void check(int ok){if(!ok)sat_panic(SAT_ERR_VERIFY_FAILED,__FILE__,__LINE__);}
 int main(void){
     const sat_video_config_t cfg={320,224,SAT_VIDEO_NTSC,SAT_VIDEO_INTERLACE_NONE};
@@ -23,7 +24,11 @@ int main(void){
     SAT_PANIC_IF_ERROR(sat_cd_mount_default(&block,0,0,&device,0,&volume));
     SAT_PANIC_IF_ERROR(kof_saturn_assets_open(&assets,&volume,"SEQUENCE.BIN",KOF_CART_BYTES));
     uint32_t base;
-    SAT_PANIC_IF_ERROR(sat_vdp1_vram_reserve(SEQ_MAX_ATLAS+24u,&base));
+    kof_sequence_vram_free=sat_vdp1_vram_free_bytes();
+    kof_sequence_vram_requested=SEQ_MAX_ATLAS+24u;
+    if(kof_sequence_vram_requested>kof_sequence_vram_free)
+        sat_panic(SAT_ERR_CAPACITY,__FILE__,__LINE__);
+    SAT_PANIC_IF_ERROR(sat_vdp1_vram_reserve(kof_sequence_vram_requested,&base));
     base=(base+31u)&~31u;
     for(;;){
       for(unsigned ci=0;ci<sizeof seq_clips/sizeof seq_clips[0];++ci){
