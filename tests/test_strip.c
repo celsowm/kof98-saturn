@@ -2,10 +2,58 @@
 #include <stdio.h>
 #include <string.h>
 #define CHECK(x) do{if(!(x)){fprintf(stderr,"line %d: %s\n",__LINE__,#x);return 1;}}while(0)
-static kof_strip strips[2048];static uint16_t pal[4096],a[224][320],b[224][320];
+static kof_strip strips[2048],fast_strips[2048];static uint16_t pal[4096],a[224][320],b[224][320];
 static unsigned pen(unsigned t,unsigned y,unsigned x){return (t+y*3u+x*5u)&15u;}
 static void tile(unsigned t,uint8_t out[128]){for(unsigned y=0;y<16;++y)for(unsigned x=0;x<16;x+=2)out[y*8+x/2]=(uint8_t)(pen(t,y,x)*16+pen(t,y,x+1));}
+static int versioned_test(void){
+ kof_strip_builder ref,fast;
+ uint16_t versions[256]={0};
+ kof_line_ir ir={0};
+ memset(pal,0,sizeof pal);
+ CHECK(!kof_strip_begin(&ref,strips,2048));
+ CHECK(!kof_strip_begin(&fast,fast_strips,2048));
+ for(unsigned y=0;y<224u;++y){
+  /* Different IDs with identical colors must merge; mutations to pen 0,
+   * high bits and individual words must split only if contents differ. */
+  if(y==5||y==6||y==77||y==78){
+   pal[16u+3u]^=0x8000u;++versions[1];
+  }
+  if(y==20||y==21){
+   pal[32u]^=1u;++versions[2];
+  }
+  if(y==40){memcpy(pal+32u,pal+16u,32u);++versions[2];}
+  ir.count=2;
+  ir.sprites[0]=(kof_sprite_span){.tile=y/31u,.mask=0xffffu,.x=10,.slot=0,.row=y%16u,
+    .palette=(uint8_t)((y>=40&&y<60)?2u:1u),.width=16};
+  ir.sprites[1]=(kof_sprite_span){.tile=55u,.mask=0x8001u,.x=318,.slot=9,.row=y%16u,.palette=2,.flip=1,.width=2};
+  if(y==91){ir.count=1;ir.sprites[0]=ir.sprites[1];}
+  CHECK(!kof_strip_push(&ref,&ir,pal,4096u));
+  CHECK(!kof_strip_push_versioned(&fast,&ir,pal,4096u,versions));
+ }
+ CHECK(kof_strip_complete(&ref)&&kof_strip_complete(&fast));
+ CHECK(ref.count==fast.count&&ref.spans==fast.spans);
+ CHECK(!memcmp(ref.head,fast.head,sizeof ref.head)&&!memcmp(ref.tail,fast.tail,sizeof ref.tail));
+ for(unsigned i=0;i<ref.count;++i){
+  const kof_strip *x=&strips[i],*z=&fast_strips[i];
+  CHECK(x->tile==z->tile&&x->x==z->x&&x->y==z->y&&x->mask==z->mask&&x->next==z->next&&
+    x->height==z->height&&x->width==z->width&&x->flip==z->flip);
+  CHECK(!memcmp(x->colors,z->colors,sizeof x->colors)&&!memcmp(x->rows,z->rows,sizeof x->rows));
+ }
+ /* All 16-bit masks tested indirectly with valid and invalid widths.
+  * Reset one small builder repeatedly; no hidden state between frames. */
+ for(unsigned m=1;m<=65535u;++m){
+  unsigned count=0;for(unsigned i=0;i<16u;++i)count+=(m>>i)&1u;
+  ir.count=1;ir.sprites[0]=(kof_sprite_span){.mask=(uint16_t)m,.width=(uint8_t)count};
+  CHECK(!kof_strip_begin(&fast,fast_strips,1));
+  CHECK(!kof_strip_push_versioned(&fast,&ir,pal,4096u,versions));
+  CHECK(!kof_strip_begin(&fast,fast_strips,1));
+  ir.sprites[0].width=(uint8_t)(count+1u);
+  CHECK(kof_strip_push_versioned(&fast,&ir,pal,4096u,versions)==-1);
+ }
+ return 0;
+}
 int main(void){
+ CHECK(!versioned_test());
  kof_strip_builder builder;kof_line_ir ir={0};CHECK(kof_strip_begin(&builder,strips,2048)==0);
  for(unsigned y=0;y<224;++y){
   for(unsigned i=0;i<4096;++i)pal[i]=(uint16_t)(i+1+(y>=100?4096:0));

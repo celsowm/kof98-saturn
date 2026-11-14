@@ -15,12 +15,21 @@ typedef struct {
     uint16_t capacity,count,line;
     uint16_t head[KOF_STRIP_SLOTS],tail[KOF_STRIP_SLOTS];
     uint32_t spans;
+    uint32_t palette_token[KOF_STRIP_SLOTS]; /* versioned path only */
     uint8_t failed;
 } kof_strip_builder;
 /* Caller-owned bounded workspace. A failed frame must be discarded. */
 int kof_strip_begin(kof_strip_builder*,kof_strip*,uint16_t capacity);
 /* Sprite-only IR, lines sequential from 0; current palette bank (4096 words). */
 int kof_strip_push(kof_strip_builder*,const kof_line_ir*,const uint16_t*,uint32_t palette_words);
+/* Optional versioned palette path. versions[256] must start at zero (or
+ * another consistent epoch) and advance on EVERY change to the corresponding
+ * 16-word palette during this builder's lifetime, including bank switches.
+ * Do not wrap/reuse a version with different contents; restart the builder
+ * before resetting versions. A different palette ID/version still merges
+ * if all 16 raw words agree, exactly as the reference path does.
+ * Do not mix ordinary and versioned pushes within a frame. */
+int kof_strip_push_versioned(kof_strip_builder*,const kof_line_ir*,const uint16_t*,uint32_t palette_words,const uint16_t versions[256]);
 int kof_strip_complete(const kof_strip_builder*);
 /* Iterate head[0..380], then next: preserves slot painter order. */
 /* 1: original 16x16 pattern reusable, flips returned separately. */

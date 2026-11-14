@@ -7,6 +7,13 @@
 #define KOF_LIVE_SCHEDULED 1
 #endif
 #include "../bytes.h"
+#ifndef KOF_LIVE_VERSIONED_STRIPS
+#define KOF_LIVE_VERSIONED_STRIPS 1
+#endif
+#if KOF_LIVE_VERSIONED_STRIPS
+static uint16_t palette_versions[256];
+#endif
+volatile uint32_t kof_sequence_live_versioned_strips,kof_sequence_live_palette_changes;
 #define LIVE_STATE_WORDS (KOF_LSPC_WORDS+4096u)
 #define LIVE_PAT_SLOTS 2048u
 #define LIVE_LUT_SLOTS 128u
@@ -74,6 +81,9 @@ static void build_strips(const seq_live_frame *f){
     kof_sequence_live_trace_fields+=sat_field_count()-start;
     start=sat_field_count();
     const uint8_t *p=scratch,*end=scratch+f->bytes;
+#if KOF_LIVE_VERSIONED_STRIPS
+    memset(palette_versions,0,sizeof palette_versions);
+#endif
     check(!kof_strip_begin(&sprites,sprite_strips,LIVE_MAX_SPRITES));
     check(!kof_strip_begin(&fix,fix_strips,LIVE_MAX_FIX));
     for(unsigned y=0;y<224u;++y){
@@ -85,6 +95,14 @@ static void build_strips(const seq_live_frame *f){
             check(idx<LIVE_STATE_WORDS&&(!j||idx>last));last=idx;
 #if KOF_LIVE_SCHEDULED
             if(idx>=0x8000u&&idx<KOF_LSPC_WORDS&&live_state[idx]!=val)schedule_dirty=1;
+#endif
+#if KOF_LIVE_VERSIONED_STRIPS
+            if(idx>=KOF_LSPC_WORDS&&live_state[idx]!=val){
+                /* At most 16 mutations per palette per line, 224 lines.
+                 * No version wrap during a frame. */
+                ++palette_versions[(idx-KOF_LSPC_WORDS)>>4];
+                ++kof_sequence_live_palette_changes;
+            }
 #endif
             live_state[idx]=(uint16_t)val;
         }
@@ -105,7 +123,11 @@ static void build_strips(const seq_live_frame *f){
         kof_sequence_live_line_ticks+=ticks()-t;
         kof_sequence_live_eval_slots+=ir.evaluated;
         t=ticks();
+#if KOF_LIVE_VERSIONED_STRIPS
+        check(!kof_strip_push_versioned(&sprites,&ir,pal,4096u,palette_versions));
+#else
         check(!kof_strip_push(&sprites,&ir,pal,4096u));
+#endif
         fix_ir.count=40;
         for(unsigned col=0;col<40u;++col){
             const kof_fix_span *q=&ir.fix[col];
@@ -113,7 +135,11 @@ static void build_strips(const seq_live_frame *f){
                 .mask=255u,.x=(uint16_t)(col*8u),.slot=(uint16_t)col,.row=q->row,
                 .palette=q->palette,.width=8u};
         }
+#if KOF_LIVE_VERSIONED_STRIPS
+        check(!kof_strip_push_versioned(&fix,&fix_ir,pal,4096u,palette_versions));
+#else
         check(!kof_strip_push(&fix,&fix_ir,pal,4096u));
+#endif
         kof_sequence_live_strip_ticks+=ticks()-t;
     }
     check(p==end&&kof_strip_complete(&sprites)&&kof_strip_complete(&fix));
@@ -252,6 +278,7 @@ int main(void){
         SAT_PANIC_IF_ERROR(sat_sprite_frame_init_raw(&prefixes[i],(uint16_t)(atlas_base/8u),
           8u,1u,SAT_VDP1_TEXTURE_LUT4,(uint16_t)(atlas_base/8u),(uint16_t)(i<<5),0,0));
     kof_sequence_live_scheduled=KOF_LIVE_SCHEDULED;
+    kof_sequence_live_versioned_strips=KOF_LIVE_VERSIONED_STRIPS;
     kof_sequence_live_timer_hz=sat_time_frequency_hz();
     kof_sequence_live_frame_count=sizeof seq_live_frames/sizeof seq_live_frames[0];
     for(;;){

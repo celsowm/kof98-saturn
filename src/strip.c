@@ -30,6 +30,52 @@ int kof_strip_push(kof_strip_builder *b,const kof_line_ir *ir,const uint16_t *pa
     ++b->line;return 0;
 fail:b->failed=1;return -1;
 }
+/* SWAR population count, no loop and no compiler runtime call. */
+static unsigned pop_fast(uint16_t m){
+    unsigned v=m;
+    v=v-((v>>1)&0x5555u);
+    v=(v&0x3333u)+((v>>2)&0x3333u);
+    v=(v+(v>>4))&0x0f0fu;
+    return (v+(v>>8))&31u;
+}
+static int palette_equal(const uint16_t *a,const uint16_t *b){
+    /* Typed halfword reads: no alignment or aliasing assumptions. */
+    return ((a[0]^b[0])|(a[1]^b[1])|(a[2]^b[2])|(a[3]^b[3])|
+            (a[4]^b[4])|(a[5]^b[5])|(a[6]^b[6])|(a[7]^b[7])|
+            (a[8]^b[8])|(a[9]^b[9])|(a[10]^b[10])|(a[11]^b[11])|
+            (a[12]^b[12])|(a[13]^b[13])|(a[14]^b[14])|(a[15]^b[15]))==0;
+}
+int kof_strip_push_versioned(kof_strip_builder *b,const kof_line_ir *ir,const uint16_t *pal,uint32_t words,const uint16_t versions[256]){
+    if(!b||!b->strips||b->failed)return -1;
+    if(!ir||!pal||!versions||words!=4096u||b->line>=224u||ir->count>96u)goto fail;
+    unsigned previous=0;
+    for(unsigned i=0;i<ir->count;++i){
+        const kof_sprite_span *p=&ir->sprites[i];
+        if(p->slot>=381u||(i&&p->slot<=previous)||p->tile>=524288u||p->row>=16u||p->flip>1u||
+           !p->width||pop_fast(p->mask)!=p->width||p->x+p->width>320u)goto fail;
+        previous=p->slot;
+        const uint16_t *colors=pal+16u*p->palette;
+        const uint32_t token=1u+((uint32_t)versions[p->palette]<<8)+p->palette;
+        const uint16_t tail=b->tail[p->slot];
+        kof_strip *s=tail==KOF_STRIP_END?NULL:&b->strips[tail];
+        if(!s||s->height==16u||s->y+s->height!=b->line||s->tile!=p->tile||
+           s->x!=p->x||s->mask!=p->mask||s->flip!=p->flip||
+           (b->palette_token[p->slot]!=token&&!palette_equal(s->colors,colors))){
+            if(b->count==b->capacity)goto fail;
+            uint16_t idx=b->count++;
+            if(s)s->next=idx;else b->head[p->slot]=idx;
+            b->tail[p->slot]=idx;s=&b->strips[idx];
+            /* Same serialized record as reference; keep unused rows zero. */
+            *s=(kof_strip){.tile=p->tile,.x=p->x,.y=b->line,.mask=p->mask,
+                .next=KOF_STRIP_END,.width=p->width,.flip=p->flip};
+            memcpy(s->colors,colors,32u);
+        }
+        b->palette_token[p->slot]=token;
+        s->rows[s->height++]=p->row;++b->spans;
+    }
+    ++b->line;return 0;
+fail:b->failed=1;return -1;
+}
 int kof_strip_complete(const kof_strip_builder *b){return b&&b->strips&&!b->failed&&b->line==224u;}
 int kof_strip_valid(const kof_strip *s){
     if(!s||!s->height||s->height>16u||!s->width||s->width!=pop(s->mask)||s->flip>1u||s->x+s->width>320u||s->y+s->height>224u)return 0;
