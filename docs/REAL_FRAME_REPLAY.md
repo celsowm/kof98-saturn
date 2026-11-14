@@ -202,3 +202,7 @@ Windows:
     python scripts/kof_ymir.py --frames 2400 --out local/ymir/live
 
 This is a new trace, so the old KFR2 alone is insufficient to exercise the input decoder. The original 600-frame packs need not be regenerated. Target compilation, memory budget, cadence and pixel parity remain pending. The probe reports the live sequence length and whether that many submissions completed. The trace loops after 16. Run python tests/test_live_sequence.py for a ROM-free parser/delta/hash regression before capturing.
+
+### L0 dump compatibility
+
+Windows capture of frames 4350–4365 succeeded, as did the three initial ROM-free parser tests. The first pack attempt rejected the L0 ROM's file size. The pinned NeoGeoRecomp a47ee3fe09dc46d1f2b86c36ec972b43b35ebf62 src/neogeo.c passes the raw file to video_load(), whose src/video.c copies the first 0x10000 bytes to s_zoom_rom regardless of trailing bytes. Match that exact behavior; reject shorter files, report original length, effective length and CRC32. Existing KST1/KFR2 captures remain usable. No original ROM is modified. Target validation remains pending.

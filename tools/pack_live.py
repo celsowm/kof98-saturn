@@ -53,6 +53,17 @@ def packet(path,previous):
     if len(out)>128*1024:raise ValueError("raster packet exceeds scratch budget")
     return first,bytes(out),state
 
+def load_zoom(roms):
+    # The pinned NeoGeoRecomp video_load() copies exactly sizeof(s_zoom_rom)
+    # (0x10000 bytes) from the beginning of 000-lo.lo. Match that behavior
+    # for larger dumps, but never pad a truncated ROM.
+    path=roms/"000-lo.lo"
+    if not path.is_file():path=roms/"000-lo.bin"
+    raw=path.read_bytes()
+    if len(raw)<65536:
+        raise ValueError(f"L0 ROM {path} has {len(raw)} bytes; need at least 65536")
+    return raw[:65536],len(raw)
+
 def build(captures,roms,out,start,count):
     if not 1<=count<=60 or start<0:raise ValueError("select 1..60 frames")
     out.mkdir(parents=True,exist_ok=True)
@@ -77,8 +88,8 @@ def build(captures,roms,out,start,count):
         print(f"state {i}: {sp}+{fx} strips, {len(p)} raster bytes",flush=True)
     if initial is None:raise ValueError("missing initial state")
     ids=sorted(ids);tiles=TileSource(roms).get(ids)
-    zoom=(roms/"000-lo.lo").read_bytes() if (roms/"000-lo.lo").is_file() else (roms/"000-lo.bin").read_bytes()
-    if len(zoom)!=65536:raise ValueError("expected exact 64 KiB L0 ROM")
+    zoom,zoom_source_bytes=load_zoom(roms)
+    print(f"L0 ROM: using {len(zoom)} of {zoom_source_bytes} bytes (reference loader)",flush=True)
     # The first packet (frame zero) has no line-zero deltas. At each loop
     # restore the original snapshot; all other frames are cross-frame deltas.
     prefix=initial+zoom+b"".join(struct.pack(">I",i) for i in ids)
@@ -86,6 +97,8 @@ def build(captures,roms,out,start,count):
     payload=prefix+packets
     report=dict(frames=count,first_frame=start,live_lspc=True,cart_bytes=len(payload),
                 cart_budget=LIMIT,raw_tiles=len(ids),trace_bytes=len(packets),
+                zoom_source_bytes=zoom_source_bytes,zoom_used_bytes=len(zoom),
+                zoom_crc32=zlib.crc32(zoom)&0xffffffff,
                 max_packet=max(r[1] for r in rows),max_sprite_strips=max_sprite,max_fix_strips=max_fix)
     (out/"sequence_report.json").write_text(json.dumps(report,indent=2)+"\n")
     print(json.dumps(report,indent=2))

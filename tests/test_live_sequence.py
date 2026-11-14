@@ -51,6 +51,21 @@ class Live(unittest.TestCase):
             a=Path(tmp)/"a.kst"
             capture(a,[0]*p.WORDS,{1:[(1,4),(1,5)]})
             with self.assertRaises(ValueError):p.packet(a,None)
+    def test_zoom_reference_loader(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory=Path(tmp)
+            path=directory/"000-lo.lo"
+            first=bytes(range(256))*256
+            path.write_bytes(first)
+            self.assertEqual(p.load_zoom(directory),(first,65536))
+            path.write_bytes(first+bytes([0xA5])*65536)
+            self.assertEqual(p.load_zoom(directory),(first,131072))
+            path.write_bytes(first[:-1])
+            with self.assertRaisesRegex(ValueError,"65535 bytes"):
+                p.load_zoom(directory)
+            path.rename(directory/"000-lo.bin")
+            (directory/"000-lo.bin").write_bytes(first)
+            self.assertEqual(p.load_zoom(directory),(first,65536))
     def test_hash(self):
         self.assertEqual(p.fnv(b"hello"),0x4f9f2cab)
 if __name__=="__main__":unittest.main()
