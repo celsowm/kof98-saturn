@@ -18,7 +18,7 @@ cmake --build build-host-paged --target kof_host_paged --parallel
   --frames 4400 --input deps/kof98recomp/tests/start_fight.txt
 ```
 
-Pass -DKOF_ENTRIES=/absolute/path/to/profiled/entries.txt to both candidate and original configure (upstream uses the same variable name). The adapter generates exec_paged.c in the build only, with strict anchor checks; no upstream source tree is edited. The unmodified ng_main passes a NULL legacy table plus the real count to the patched exec_init; that private contract is explicitly validated along with bank count and paged arrays. The original table is an intermediate generator output, not a source of the candidate executable. Both legacy and paged data exist only on the host filesystem; no two tables are linked.
+Pass `-DKOF_ENTRIES=/absolute/path/to/profiled/entries.txt` to the candidate configure and `-DKOF98_ENTRIES=/absolute/path/to/profiled/entries.txt` to the original upstream configure. Use identical entry-list contents for both. The adapter generates exec_paged.c in the build only, with strict anchor checks; no upstream source tree is edited. The unmodified ng_main passes a NULL legacy table plus the real count to the patched exec_init; that private contract is explicitly validated along with bank count and paged arrays. The original table is an intermediate generator output, not a source of the candidate executable. Both legacy and paged data exist only on the host filesystem; no two tables are linked.
 
 Acceptance before promoting:
 1. Verify original dense host and candidate build at identical pins and -D options. Save local logs, binary hashes and size/map. Verify native and interpreted block counts and no mismatch/overflow.
