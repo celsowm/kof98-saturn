@@ -50,3 +50,5 @@ Experimental [local data register caching](docs/X2_REGISTER_CACHE.md): `-DKOF_OP
 [X4 staged VDP1 emitter](docs/X4_VDP1_EMITTER.md): native tiles and exact shrink variants, shared LUTs, command preflight and staged-list rollback. Mock integration tests pass; actual SDK/target probe remains open.
 
 [ROM-free Saturn graphics probe](docs/SATURN_GRAPHICS_PROBE.md) — optional `KOF_BUILD_GRAPHICS_PROBE=ON` disc target for the CD/cart/VDP1 pipeline. Target validation pending.
+
+[Real-frame replay](docs/REAL_FRAME_REPLAY.md) — synthetic graphics probe visually confirmed in Mednafen; local-only capture and static sprite replay added, actual game validation pending.
