@@ -103,7 +103,8 @@ def resolve_symbols(elf,build):
             if m:found.setdefault(m[2],int(m[1],16))
     missing=set(SYMBOLS)-found.keys()
     if missing:raise ValueError(f"missing ELF/map symbols: {sorted(missing)}")
-    optional=('kof_sequence_fix_updates','kof_sequence_fix_swaps','kof_sequence_fix_errors')
+    optional=('kof_sequence_fix_updates','kof_sequence_fix_swaps','kof_sequence_fix_errors',
+              'kof_sequence_stage_updates','kof_sequence_stage_swaps','kof_sequence_stage_max_updates')
     return {k:found[k] for k in (*SYMBOLS,*optional) if k in found}
 
 def main():

@@ -3,6 +3,7 @@
 import argparse
 import csv
 from pack_fix import Fix
+from pack_stage import Stage
 from collections import OrderedDict
 from difflib import SequenceMatcher
 import json
@@ -104,7 +105,8 @@ def source_rows(directory):
         next_frame+=count
     if next_frame!=len(frames):raise ValueError("source frame coverage")
 
-def build(source,out,fix_vdp2=False):
+def build(source,out,fix_vdp2=False,stage_vdp2=False,stage_prefix=256):
+    if stage_vdp2 and not fix_vdp2:raise ValueError('stage mode requires FIX mode')
     if source.resolve()==out.resolve():raise ValueError("separate output directory required")
     out.mkdir(parents=True,exist_ok=True)
     for name in ("SEQUENCE.BIN","sequence_manifest.h","sequence_report.json"):
@@ -112,7 +114,9 @@ def build(source,out,fix_vdp2=False):
     pats={};luts={};pattern_data=[];lut_data=[]
     pc=Cache(PAT_SLOTS);lc=Cache(LUT_SLOTS)
     old=[];packets=bytearray();frames=[];uploads=[];delta_bytes=0
-    fix=Fix() if fix_vdp2 else None
+    fix=Fix(palette_limit=48 if stage_vdp2 else 96) if fix_vdp2 else None
+    stage=Stage(stage_prefix) if stage_vdp2 else None
+    backdrop=None
     fix_counts=[];removed=0;peak_removed=0
     if fix:
         with (source/'frames.csv').open(newline='') as f:
@@ -123,13 +127,19 @@ def build(source,out,fix_vdp2=False):
             table[data]=len(items);items.append(data)
         return table[data]
     for i,(bg,draw) in enumerate(source_rows(source)):
-        fix_packet=b""
+        fix_packet=b"";stage_packet=b""
+        if stage:
+            if backdrop is None:backdrop=bg
+            if bg!=backdrop:raise ValueError('stage mode requires constant backdrop')
         if fix:
             if i>=len(fix_counts):raise ValueError("missing FIX metadata")
             total,n=fix_counts[i]
             if total!=len(draw) or not 0<=n<total:raise ValueError("invalid FIX suffix")
             fix_packet=fix.encode(draw[total-n:])
             draw=draw[:total-n];removed+=n;peak_removed=max(peak_removed,n)
+        if stage:
+            moved,stage_packet=stage.encode(draw)
+            draw=draw[moved:]
         ids=[(intern(pats,pattern_data,p.ljust(128,b"\0")),intern(luts,lut_data,l)) for x,y,w,h,f,p,l in draw]
         updates_p=pc.assign([p for p,l in ids]);updates_l=lc.assign([l for p,l in ids])
         updates=sorted(updates_p)+[(0x8000|slot,key) for slot,key in sorted(updates_l)]
@@ -141,7 +151,7 @@ def build(source,out,fix_vdp2=False):
             if pattern_data[pc.data[slot]][:len(p)]!=p or lut_data[lc.data[ls]]!=l:raise ValueError("cache verification failed")
         commands=delta(old,new)
         if decode_delta(commands,old,len(new))!=new:raise ValueError("delta verification failed")
-        packet=U16.pack(len(updates))+b"".join(UPDATE.pack(*u) for u in updates)+fix_packet+commands
+        packet=U16.pack(len(updates))+b"".join(UPDATE.pack(*u) for u in updates)+fix_packet+stage_packet+commands
         if len(packet)>128*1024:raise ValueError("packet exceeds WRAM scratch")
         frames.append((len(packets),len(packet),len(new),bg))
         packets+=packet;old=new
@@ -152,7 +162,9 @@ def build(source,out,fix_vdp2=False):
     if fix and len(frames)!=len(fix_counts):raise ValueError("FIX metadata coverage")
     fix_tiles=b"".join(fix.tiles) if fix else b""
     fix_palettes=b"".join(fix.palettes) if fix else b""
-    prefix=patterns+palettes+fix_tiles+fix_palettes;payload=prefix+packets
+    stage_tiles=b''.join(stage.layer.tiles) if stage else b''
+    stage_palettes=b''.join(stage.layer.palettes) if stage else b''
+    prefix=patterns+palettes+fix_tiles+fix_palettes+stage_tiles+stage_palettes;payload=prefix+packets
     report=dict(frames=len(frames),resident=True,disc_payload_bytes=len(payload),
                 cart_budget=CART,atlas_bytes=ATLAS,pattern_slots=PAT_SLOTS,lut_slots=LUT_SLOTS,
                 unique_padded_patterns=len(pattern_data),unique_palettes=len(lut_data),
@@ -166,8 +178,17 @@ def build(source,out,fix_vdp2=False):
                       mean_removed_commands=removed/len(frames),peak_removed_commands=peak_removed,
                       fix_map_updates=fix.total_updates,max_fix_map_updates=fix.max_updates,
                       fix_tile_bytes=len(fix_tiles),fix_palette_bytes=len(fix_palettes))
+    if stage:
+        report.update(stage_vdp2=True,stage_prefix_cap=stage.max_prefix,stage_tiles=len(stage.layer.tiles),
+                      stage_palettes=len(stage.layer.palettes),stage_mean_removed_commands=sum(stage.removed)/len(frames),
+                      stage_min_removed_commands=min(stage.removed),stage_peak_removed_commands=max(stage.removed),
+                      stage_fallback_frames=stage.fallback,stage_zero_prefix_frames=stage.removed.count(0),
+                      stage_map_updates=stage.layer.total_updates,stage_max_map_updates=stage.layer.max_updates,
+                      stage_tile_bytes=len(stage_tiles),stage_palette_bytes=len(stage_palettes),
+                      mean_remaining_commands=sum(f[2] for f in frames)/len(frames))
     (out/"sequence_report.json").write_text(json.dumps(report,indent=2)+"\n")
     print(json.dumps(report,indent=2))
+    if stage and not any(stage.removed):raise ValueError("no eligible stage prefix; use FIX-only control")
     if len(payload)>CART:raise ValueError("resident pack exceeds 4 MiB; no buildable output")
     header="#ifndef KOF_SEQUENCE_MANIFEST_H\n#define KOF_SEQUENCE_MANIFEST_H\n#define SEQ_RESIDENT 1\n"
     for key,val in dict(SEQ_MAX_ATLAS=ATLAS,SEQ_RESIDENT_BYTES=len(payload),SEQ_RESIDENT_CRC=zlib.crc32(payload)&0xffffffff,
@@ -180,6 +201,11 @@ def build(source,out,fix_vdp2=False):
         for key,val in dict(SEQ_FIX_TILE_OFFSET=len(patterns)+len(palettes),
                             SEQ_FIX_TILE_BYTES=len(fix_tiles),SEQ_FIX_LUT_OFFSET=len(patterns)+len(palettes)+len(fix_tiles),
                             SEQ_FIX_LUT_BYTES=len(fix_palettes)).items():header+=f"#define {key} {val}u\n"
+    if stage:
+        header+="#define SEQ_STAGE_VDP2 1\n"
+        for key,val in dict(SEQ_STAGE_TILE_OFFSET=len(patterns)+len(palettes)+len(fix_tiles)+len(fix_palettes),
+                            SEQ_STAGE_TILE_BYTES=len(stage_tiles),SEQ_STAGE_LUT_OFFSET=len(prefix)-len(stage_palettes),
+                            SEQ_STAGE_LUT_BYTES=len(stage_palettes),SEQ_STAGE_BG=backdrop).items():header+=f"#define {key} {val}u\n"
     header+="static const seq_resident_frame seq_resident_frames[] = {\n"
     for off,size,count,bg in frames:header+=f"  {{{len(prefix)+off}u,{size}u,{count}u,{bg}u}},\n"
     header+="};\n#endif\n"
@@ -190,6 +216,8 @@ if __name__=="__main__":
     a=argparse.ArgumentParser(description=__doc__)
     a.add_argument("source",type=Path);a.add_argument("output",type=Path)
     a.add_argument("--fix-vdp2",action="store_true")
+    a.add_argument("--stage-vdp2",action="store_true",help="conservative ordered prefix on NBG1; implies FIX")
+    a.add_argument("--stage-prefix",type=int,default=256)
     p=a.parse_args()
-    try:build(p.source,p.output,p.fix_vdp2)
+    try:build(p.source,p.output,p.fix_vdp2 or p.stage_vdp2,p.stage_vdp2,p.stage_prefix)
     except (ValueError,OSError,struct.error) as e:a.error(str(e))

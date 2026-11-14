@@ -5,6 +5,7 @@ from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"tools"))
 import pack_resident as p
 from pack_fix import Fix
+from pack_stage import Stage
 import struct
 
 class Resident(unittest.TestCase):
@@ -38,4 +39,32 @@ class Resident(unittest.TestCase):
         self.assertEqual(f.encode(draws),b"\x00\x00")
         self.assertEqual(struct.unpack(">4H",f.encode([])),(1,0,0,0))
         self.assertEqual(f.previous[0],(0,0))
+    def test_stage_prefix_fallback_and_wrap(self):
+        s=Stage(2)
+        red=struct.pack(">16H",0,0x801f,*([0]*14))
+        green=struct.pack(">16H",0,0x83e0,*([0]*14))
+        a=(0,0,8,8,0,bytes([0x11])*32,red)
+        b=(8,0,8,8,0,bytes([0x11])*32,green)
+        foreground=(0,0,8,8,0,bytes([0x11])*32,green)
+        s.layer.cell_limit=1
+        count,packet=s.encode([a,b,foreground])
+        self.assertEqual(count,1)
+        self.assertEqual(len(s.layer.tiles),2)
+        self.assertEqual(len(s.layer.palettes),2)
+        self.assertEqual(s.layer.previous[1],(0,0))
+        self.assertEqual(s.encode([a,b,foreground]),(1,b"\x00\x00"))
+        self.assertEqual(s.encode([foreground])[0],0)
+        self.assertEqual(s.layer.previous[0],(0,0))
+    def test_stage_overlapping_prefix_exact(self):
+        s=Stage(2)
+        red=struct.pack(">16H",0,0x801f,*([0]*14))
+        green=struct.pack(">16H",0,0x83e0,*([0]*14))
+        a=(0,0,8,8,0,bytes([0x11])*32,red)
+        b=(0,0,8,4,0,bytes([0x11])*16,green)
+        count,_=s.encode([a,b,a])
+        self.assertEqual(count,2)
+        tile,pal=s.layer.previous[0]
+        lut=struct.unpack(">16H",s.layer.palettes[pal])
+        colors=[lut[(s.layer.tiles[tile][i//2]>>(0 if i&1 else 4))&15] for i in range(64)]
+        self.assertEqual(colors,[0x83e0]*32+[0x801f]*32)
 if __name__=="__main__":unittest.main()

@@ -11,6 +11,9 @@ typedef struct {uint16_t word,hi,lo;} fix_write;
 static fix_write fix_pending[FIX_CELLS];
 static volatile uint32_t fix_pending_count,fix_pending_serial;
 volatile uint32_t kof_sequence_fix_updates,kof_sequence_fix_swaps,kof_sequence_fix_errors;
+#ifdef SEQ_STAGE_VDP2
+#include "sequence_stage.inc"
+#endif
 static void fix_swap(uint32_t serial,void *unused){
     (void)unused;
     if(serial!=fix_pending_serial){++kof_sequence_fix_errors;return;}
@@ -20,6 +23,9 @@ static void fix_swap(uint32_t serial,void *unused){
         const fix_write *w=&fix_pending[i];
         vram[w->word]=w->hi;vram[w->word+1u]=w->lo;
     }
+#ifdef SEQ_STAGE_VDP2
+    stage_publish(vram);
+#endif
     kof_sequence_fix_updates+=n;++kof_sequence_fix_swaps;
     fix_pending_count=0;fix_pending_serial=0;
 }
@@ -45,6 +51,9 @@ static void fix_init(kof_asset_handle a){
     c.color_mode=SAT_VDP2_COLOR_MODE_16;c.pattern_name_words=2u;
     c.priority=7u;c.transparent=1u;c.char_bank_mask=SAT_VDP2_BANK_B0;
     SAT_PANIC_IF_ERROR(sat_vdp2_layer_configure(&c));
+#ifdef SEQ_STAGE_VDP2
+    stage_init(a);
+#endif
     SAT_PANIC_IF_ERROR(sat_vdp2_sprite_set_priority(6u));
     SAT_PANIC_IF_ERROR(sat_wait_vblank());
     SAT_PANIC_IF_ERROR(sat_vdp2_layers_commit());

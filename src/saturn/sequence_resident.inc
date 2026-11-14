@@ -121,10 +121,18 @@ int main(void) {
             upload_slots(a,base,&p,end);
 #ifdef SEQ_FIX_VDP2
             fix_prepare(&p,end);
+#ifdef SEQ_STAGE_VDP2
+            stage_prepare(&p,end);
+#endif
 #endif
             decode(p,end,f->count,old_count,dst,old);
             kof_sequence_stage=4;
+#ifdef SEQ_STAGE_VDP2
+            check(f->bg==SEQ_STAGE_BG);
+            SAT_PANIC_IF_ERROR(sat_vdp1_set_erase_transparent());
+#else
             SAT_PANIC_IF_ERROR(sat_set_clear_color(f->bg));
+#endif
             SAT_PANIC_IF_ERROR(sat_begin_frame());
             sat_vdp1_command_stats_t cs;SAT_PANIC_IF_ERROR(sat_vdp1_command_stats(&cs));
             check((unsigned)cs.used+f->count+1u<=cs.capacity);
@@ -148,6 +156,9 @@ int main(void) {
             SAT_PANIC_IF_ERROR(sat_wait_vblank());
 #ifdef SEQ_FIX_VDP2
             check(!fix_pending_serial && !fix_pending_count && !kof_sequence_fix_errors);
+#ifdef SEQ_STAGE_VDP2
+            check(!stage_pending_count);
+#endif
 #endif
             kof_sequence_index=i;kof_sequence_commands=f->count;++kof_sequence_frames;
             uint16_t (*swap)[8]=old;old=dst;dst=swap;old_count=f->count;
