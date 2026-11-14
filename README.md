@@ -52,3 +52,5 @@ Experimental [local data register caching](docs/X2_REGISTER_CACHE.md): `-DKOF_OP
 [ROM-free Saturn graphics probe](docs/SATURN_GRAPHICS_PROBE.md) — optional `KOF_BUILD_GRAPHICS_PROBE=ON` disc target for the CD/cart/VDP1 pipeline. Target validation pending.
 
 [Real-frame replay](docs/REAL_FRAME_REPLAY.md) — synthetic graphics probe visually confirmed in Mednafen; local-only capture and static sprite replay added, single real frame visually validated in Mednafen; zero host RGB555 mismatches; FIX, performance and gameplay remain pending.
+
+KFR2 full FIX capture and [bounded 600-frame sequence replay](docs/REAL_FRAME_REPLAY.md) are available for local validation. Use `scripts/setup-emulators.ps1` for persistent PowerShell shortcuts (`kofrun frame`, `kofrun sequence`).
