@@ -4,7 +4,7 @@ Status: proposed architecture and feasibility gates, not a playable port.
 
 ## 1. Goal and upstream baseline
 
-Preserve the original AES program semantics, not a rewritten fighting engine. Develop a native SH-2 execution backend and convert Neo Geo hardware output into Saturn hardware operations through the installed LibSaturn SDK. Start with NTSC 320×224 and a 4 MiB expansion cartridge; stock RAM, PAL and widescreen are separate experiments. The cartridge is a working assumption, not a proven sufficient configuration.
+Preserve the original AES program semantics, not a rewritten fighting engine. Develop a native SH-2 execution backend and convert Neo Geo hardware output into Saturn hardware operations through the installed LibSaturn SDK. Target NTSC 320×224 with a mandatory 4 MiB expansion cartridge. Stock RAM and 1 MiB cartridges are explicitly out of scope. PAL and widescreen are separate experiments. The 4 MiB cartridge is a minimum requirement, not proof that the total memory budget is sufficient.
 
 Pinned source baselines:
 - [KOF98 Recomp](https://github.com/danilopaulinodasilva/kof98recomp/tree/44f873a3cca3827a48fca30fa8091da746311af0)
@@ -62,7 +62,7 @@ Gate A: reproducible full-size/link report (or documented link failure), represe
 - Partition overlays by proven lifetimes (boot, menu, fight, ending) rather than arbitrary ROM bank boundaries. Load only into reserved executable internal WRAM, validate relocations, invalidate instruction cache as required, and make dispatch generation-aware. Never execute code from the RAM cart as a baseline: LibSaturn's RAM expansion contract is data-only. Cart has two separate 2 MiB banks; use logical slices. SCU DMA can read but not write cart memory according to the SDK contract.
 - Measure fixed bank and banked data working sets. Demand-load only at safe points or prefetch with proven bounds; do not claim that 5 MiB of P ROM can fit alongside code and graphics. Consider extracting data-only reachable ranges with trace plus static bounds; retain correctness fallback.
 
-Memory accounting: WRAM-H 1 MiB and WRAM-L 1 MiB, not one contiguous free arena. Account for SDK/linker reservations, stacks, 64 KiB guest RAM, 128 KiB LSPC VRAM model, palette RAM, data caches, queues, overlays and DMA buffers. Cart: 4 MiB data in two banks. VDP1 VRAM 512 KiB (commands, textures, LUTs); VDP2 VRAM 512 KiB (patterns/maps/scroll tables), CRAM mode-dependent up to 4 KiB, Sound RAM 512 KiB for driver, samples and ring. Each memory space gets separate peak and guard reports. No borrowing framebuffer RAM or cart execution in baseline.
+Memory accounting: WRAM-H 1 MiB and WRAM-L 1 MiB, not one contiguous free arena. Account for SDK/linker reservations, stacks, 64 KiB guest RAM, 128 KiB LSPC VRAM model, palette RAM, data caches, queues, overlays and DMA buffers. Cart: mandatory 4 MiB data in two banks. Start with an adjustable budget of 2 MiB for character/stage tiles and 2 MiB for guest program data/cache, then rebalance from measured working sets. Both allocations are hypotheses, not validated residency sizes. Detect the 4 MiB cartridge before allocating game resources and provide a readable startup diagnostic if absent or incompatible. VDP1 VRAM 512 KiB (commands, textures, LUTs); VDP2 VRAM 512 KiB (patterns/maps/scroll tables), CRAM mode-dependent up to 4 KiB, Sound RAM 512 KiB for driver, samples and ring. Each memory space gets separate peak and guard reports. No borrowing framebuffer RAM or cart execution in baseline.
 
 Gate B: deterministic boot and scripted fight logic within actual link/stack limits, and p99 guest CPU cost with adequate measured rendering/audio headroom. Target roughly 60 Hz presentation, not a claim.
 
@@ -100,7 +100,7 @@ Gate F: no timing deadlock, handshake divergence, unexpected underruns or missin
 
 ## 10. Phase G — full game and release validation
 
-Run upstream mode scripts (single/team play and versus, survival/practice), attract, every stage, character/costume, rounds and boss; include two human pads, grabs, supers, KO, timeouts, pauses and reset. Build generated exhaustive matchup matrix and report seeds, results and divergences. Long-run memory high-water and cache stress. Validate CD boot and 4 MiB detection on actual hardware; explicit diagnostic for no/wrong cart. PAL, stock RAM and widescreen are opt-in research milestones only after NTSC baseline. Widescreen patches upstream alter camera/wall behavior; not default. Never publish copyrighted game artifacts from CI or releases.
+Run upstream mode scripts (single/team play and versus, survival/practice), attract, every stage, character/costume, rounds and boss; include two human pads, grabs, supers, KO, timeouts, pauses and reset. Build generated exhaustive matchup matrix and report seeds, results and divergences. Long-run memory high-water and cache stress. Validate CD boot and 4 MiB detection on actual hardware; explicit diagnostic for no/wrong cart. PAL and widescreen are opt-in research milestones only after NTSC baseline. Stock RAM and 1 MiB cartridges are not supported targets. Widescreen patches upstream alter camera/wall behavior; not default. Never publish copyrighted game artifacts from CI or releases.
 
 ## 11. Deliverables and priorities
 
