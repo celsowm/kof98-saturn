@@ -5,6 +5,7 @@ Experimental native Sega Saturn port of The King of Fighters '98, using [KOF98 R
 **Status: feasibility research — not playable.** The required baseline is NTSC 320×224 with original game timing and a **mandatory 4 MiB RAM expansion cartridge**. Stock RAM and 1 MiB cartridges are out of scope. The first gate is code size and execution speed, not graphics.
 
 - [Engineering plan](docs/PORTING_PLAN.md)
+- [Cross-port study: Tekken3 and Ikemen Saturn](docs/CROSS_PORT_ENGINEERING.md)
 - [Contributor instructions](AGENTS.md)
 
 ## ROM-free host tests

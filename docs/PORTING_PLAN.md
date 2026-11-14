@@ -2,6 +2,8 @@
 
 Status: proposed architecture and feasibility gates, not a playable port.
 
+**Normative companion:** [Cross-port engineering study](CROSS_PORT_ENGINEERING.md) — source-backed lessons from Tekken3 Saturn and Ikemen Saturn, including mandatory lifetime accounting, two-tier sprite residency, direct VRAM command banks, deterministic timing and differential acceptance gates. Follow its refined work packages X0–X8.
+
 ## 1. Goal and upstream baseline
 
 Preserve the original AES program semantics, not a rewritten fighting engine. Develop a native SH-2 execution backend and convert Neo Geo hardware output into Saturn hardware operations through the installed LibSaturn SDK. Target NTSC 320×224 with a mandatory 4 MiB expansion cartridge. Stock RAM and 1 MiB cartridges are explicitly out of scope. PAL and widescreen are separate experiments. The 4 MiB cartridge is a minimum requirement, not proof that the total memory budget is sufficient.
