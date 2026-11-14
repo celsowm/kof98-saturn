@@ -42,3 +42,5 @@ Experimental [local data register caching](docs/X2_REGISTER_CACHE.md): `-DKOF_OP
 [Native tile pack converter](docs/X3_TILE_PACK.md): local selected C/FIX ROM tiles converted to packed 4bpp, with aligned assets and CRC descriptors for the cart store. Synthetic reference tests pass; actual game tiles and target uploads remain unverified.
 
 [X4 native tile cache](docs/X4_TILE_CACHE.md): independent LUT4 pattern/LUT slots, binary lookup of resident tile packs, current-list pins and fenced SDK writes. Synthetic core tests pass; target integration remains open.
+
+[X4 LSPC scanline IR](docs/X4_LSPC_IR.md): portable ordered sprite spans and FIX addressing with exact oracle-derived shrink masks. Synthetic differential tests pass; target command emission remains open.
