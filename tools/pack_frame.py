@@ -77,7 +77,18 @@ def build(capture,roms,out):
         lutoff=alloc(lutdata,32);texoff=alloc(pattern,8)
         palettes.add(lutoff);patterns.add(texoff)
         draws.append((x,y,padded,h,texoff,lutoff,flags))
-    mismatches=sum(a!=b for a,b in zip(image,ref))
+    # Independently replay the FINAL atlas commands (including native HW flips).
+    final=[v for v in bg for _ in range(W)]
+    for x,y,w,h,tex,lut,flags in draws:
+        for j in range(h):
+            sy=h-1-j if flags&0x40 else j
+            for k in range(w):
+                if x+k>=W: continue
+                sx=w-1-k if flags&0x20 else k
+                pen=(atlas[tex+sy*(w//2)+sx//2]>>(0 if sx&1 else 4))&15
+                if pen: final[(y+j)*W+x+k]=struct.unpack_from(">H",atlas,lut+pen*2)[0]
+    if final!=image: raise ValueError("atlas command replay differs from strip raster")
+    mismatches=sum(a!=b for a,b in zip(final,ref))
     out.mkdir(parents=True,exist_ok=True)
     # Never leave stale buildable manifests after a failed validation.
     for name in ("FRAME.BIN","frame_manifest.h"):
