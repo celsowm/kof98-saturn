@@ -28,3 +28,5 @@ The [offline dispatch packer](docs/X1_GENERATED_DISPATCH.md) converts locally ge
 Experimental [exact suffix sharing](docs/X2_SUFFIX_DEDUP.md) is available with `-DKOF_DEDUP_SUFFIX=ON` in a separate local host build. It is off by default until real-game parity and SH-2 size/timing are measured.
 
 An independent [bounded CFG sharing candidate](docs/X2_CFG_DEDUP.md) is available with `-DKOF_DEDUP_CFG=ON`. Select one dedup strategy per build; both are experimental.
+
+Experimental [local dead flag elimination](docs/X2_FLAG_LIVENESS.md): `-DKOF_OPT_FLAGS=ON`, default OFF. Measure separately from CFG sharing.
