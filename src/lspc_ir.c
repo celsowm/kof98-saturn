@@ -71,6 +71,76 @@ int kof_lspc_schedule_build(kof_lspc_schedule *s,const uint16_t *v,uint32_t word
     }
     return 0;
 }
+
+/* No variable shifts or per-line slots stores in the epochs-only path.
+ * Aggregate selected bits a word at a time, and maintain exact counts
+ * including horizontally clipped slots. */
+const uint32_t kof_lspc_bit[32]={0x00000001u,0x00000002u,0x00000004u,0x00000008u,0x00000010u,0x00000020u,0x00000040u,0x00000080u,0x00000100u,0x00000200u,0x00000400u,0x00000800u,0x00001000u,0x00002000u,0x00004000u,0x00008000u,0x00010000u,0x00020000u,0x00040000u,0x00080000u,0x00100000u,0x00200000u,0x00400000u,0x00800000u,0x01000000u,0x02000000u,0x04000000u,0x08000000u,0x10000000u,0x20000000u,0x40000000u,0x80000000u};
+static unsigned schedule_epoch_range(kof_lspc_schedule *s,kof_lspc_column *c,
+    unsigned begin,unsigned end,unsigned first,unsigned stop){
+    if(begin<first)begin=first;
+    if(end>stop)end=stop;
+    if(begin>=end)return 0;
+    unsigned filled=0;
+    if(!c->width){
+        for(unsigned y=begin;y<end;++y){
+            unsigned k=s->count[y];
+            if(k<96u){s->count[y]=(uint8_t)(k+1u);filled+=k==95u;}
+        }
+        return filled;
+    }
+    while(begin<end){
+        unsigned word=begin>>5;
+        unsigned limit=(word+1u)*32u;
+        if(limit>end)limit=end;
+        uint32_t bit=kof_lspc_bit[begin&31u],selected=0;
+        for(unsigned y=begin;y<limit;++y,bit<<=1){
+            unsigned k=s->count[y];
+            if(k<96u){
+                s->count[y]=(uint8_t)(k+1u);filled+=k==95u;
+                selected|=bit;
+                if(c->first>y)c->first=(uint16_t)y;
+                c->last=(uint16_t)(y+1u);
+            }
+        }
+        c->selected[word]|=selected;
+        begin=limit;
+    }
+    return filled;
+}
+int kof_lspc_schedule_build_range(kof_lspc_schedule *s,const uint16_t *v,
+    uint32_t words,unsigned first,unsigned stop){
+    if(!s||!v||words<KOF_LSPC_WORDS||first>=stop||stop>224u)return -1;
+    for(unsigned i=first;i<stop;++i)s->count[i]=0;
+    unsigned x=0,y=0,rows=0,zy=0,zx=0,filled=0;
+    for(unsigned n=0;n<381u;++n){
+        kof_lspc_column *c=&s->columns[n];
+        c->first=224u;c->last=0u;
+        if(filled==stop-first)continue; /* every line reached its hardware limit */
+        unsigned ctl=v[0x8200u+n],zoom=v[0x8000u+n];
+        if(ctl&64u){x=(x+zx+1u)&511u;zx=(zoom>>8)&15u;}
+        else{y=512u-(ctl>>7);x=v[0x8400u+n]>>7;zy=zoom&255u;zx=(zoom>>8)&15u;rows=ctl&63u;}
+        if(!rows)continue;
+        unsigned begin=(y-16u)&511u,end=begin+16u*(rows>32u?32u:rows);
+        if(!(begin<stop&&end>first)&&!(end>512u&&end-512u>first))continue;
+        unsigned px=x,mask=0,left=0,width=0;
+        if(x+zx<320u){mask=masks[zx];left=x;width=zx+1u;}
+        else if(x<320u||x+zx>=512u){
+            unsigned bit=1u;
+            for(unsigned i=0;i<16u;++i,bit<<=1)if(masks[zx]&bit){
+                if(px<320u){if(!width)left=px;mask|=bit;++width;}
+                px=(px+1u)&511u;
+            }
+        }
+        c->x=(uint16_t)left;c->mask=(uint16_t)mask;c->y=(uint16_t)y;
+        c->width=(uint8_t)width;c->rows=(uint8_t)rows;c->zy=(uint8_t)zy;
+        for(unsigned i=0;i<7u;++i)c->selected[i]=0;
+        /* Wrapped interval first so selected bounds stay monotonic. */
+        if(end>512u)filled+=schedule_epoch_range(s,c,0,end-512u,first,stop);
+        filled+=schedule_epoch_range(s,c,begin,end,first,stop);
+    }
+    return 0;
+}
 int kof_lspc_line_scheduled(const kof_lspc_schedule *s,const uint16_t *v,uint32_t words,
     const uint8_t *z,uint32_t nz,unsigned anim,unsigned line,int bios,kof_line_ir *o){
     if(!s||!v||words<KOF_LSPC_WORDS||!z||nz!=KOF_ZOOM_BYTES||line>=224u||!o||(bios!=0&&bios!=1))return -1;

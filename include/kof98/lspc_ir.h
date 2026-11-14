@@ -28,6 +28,12 @@ typedef struct {
     uint8_t count[224];
 } kof_lspc_schedule;
 int kof_lspc_schedule_build(kof_lspc_schedule*,const uint16_t *vram,uint32_t words);
+/* Epoch-only schedule: only count[first..end) and selected bits/first/last
+ * are published. The line-oriented slots table is NOT populated. Reuse
+ * within this interval while SCB2/3/4 remain unchanged. */
+int kof_lspc_schedule_build_range(kof_lspc_schedule*,const uint16_t *vram,
+    uint32_t words,unsigned first,unsigned end);
+extern const uint32_t kof_lspc_bit[32];
 int kof_lspc_line_scheduled(const kof_lspc_schedule*,const uint16_t *vram,uint32_t words,
     const uint8_t *zoom,uint32_t zoom_bytes,unsigned anim,unsigned line,int fix_bios,kof_line_ir *out);
 /* Saturn RGB555: nearest available 5-bit components (dark step lost). */

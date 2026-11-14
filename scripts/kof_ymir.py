@@ -113,7 +113,8 @@ def resolve_symbols(elf,build):
               'kof_sequence_live_line_ticks','kof_sequence_live_strip_ticks','kof_sequence_live_hash_ticks',
               'kof_sequence_live_cache_ticks','kof_sequence_live_read_ticks','kof_sequence_live_timed_frames',
               'kof_sequence_live_versioned_strips','kof_sequence_live_palette_changes',
-              'kof_sequence_live_epochs','kof_sequence_live_epoch_count')
+              'kof_sequence_live_epochs','kof_sequence_live_epoch_count',
+              'kof_sequence_live_range_schedule','kof_sequence_live_schedule_lines')
     return {k:found[k] for k in (*SYMBOLS,*optional) if k in found}
 
 def main():

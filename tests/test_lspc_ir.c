@@ -18,7 +18,7 @@ static void reference(unsigned line,unsigned anim,uint32_t *pixels,unsigned *eva
  }
 }
 static void replay(const kof_line_ir *o,uint32_t *pixels){for(unsigned j=0;j<o->count;j++){const kof_sprite_span *s=&o->sprites[j];unsigned x=s->x;for(unsigned i=0;i<16;i++)if(s->mask&(1u<<i)){unsigned p=pen(s->tile,s->row,s->flip?15-i:i);if(p)pixels[x]=(unsigned)s->palette*16+p+1;++x;}}}
-static kof_lspc_schedule schedule;
+static kof_lspc_schedule schedule,range_schedule;
 static int equal_ir(const kof_line_ir *a,const kof_line_ir *b){
  if(a->count!=b->count||a->evaluated!=b->evaluated||a->fix_bios!=b->fix_bios)return 0;
  for(unsigned i=0;i<a->count;++i){
@@ -32,12 +32,36 @@ static int equal_ir(const kof_line_ir *a,const kof_line_ir *b){
  }
  return 1;
 }
+static int range_equal(unsigned first,unsigned end){
+ if(kof_lspc_schedule_build_range(&range_schedule,v,KOF_LSPC_WORDS,first,end))return 0;
+ for(unsigned y=first;y<end;++y){
+  if(schedule.count[y]!=range_schedule.count[y])return 0;
+  unsigned j=0;
+  for(unsigned n=0;n<381u;++n){
+   const kof_lspc_column *c=&range_schedule.columns[n];
+   unsigned actual=c->first<=y&&y<c->last&&(c->selected[y>>5]&kof_lspc_bit[y&31u]);
+   while(j<schedule.count[y]&&!schedule.columns[schedule.slots[y][j]].width)++j;
+   unsigned expected=j<schedule.count[y]&&schedule.slots[y][j]==n;
+   if(!!actual!=!!expected)return 0;
+   if(expected){
+    const kof_lspc_column *a=&schedule.columns[n];
+    if(c->x!=a->x||c->mask!=a->mask||c->y!=a->y||c->width!=a->width||c->rows!=a->rows||c->zy!=a->zy)return 0;
+    ++j;
+   }
+  }
+ }
+ return 1;
+}
 int main(void){kof_line_ir o,fast;CHECK(kof_lspc_line(v,KOF_LSPC_WORDS,z,sizeof z,0,224,0,&o)==-1);CHECK(kof_lspc_line(v,KOF_LSPC_WORDS-1,z,sizeof z,0,0,0,&o)==-1);
  for(unsigned i=0;i<65536;i++)z[i]=(uint8_t)(random32()>>24);
  for(unsigned scenario=0;scenario<8;scenario++){
   for(unsigned i=0;i<KOF_LSPC_WORDS;i++)v[i]=(uint16_t)(random32()>>16);
   for(unsigned i=0;i<381;i++){unsigned y=(random32()>>16)&511u;unsigned rows=(random32()>>16)&63u;v[0x8200+i]=(uint16_t)(((512-y)&511u)<<7|rows|((i%3==1)?64u:0u));v[0x8400+i]=(uint16_t)((random32()>>16)&0xff80u);}
   CHECK(!kof_lspc_schedule_build(&schedule,v,KOF_LSPC_WORDS));
+  for(unsigned start=0;start<224u;){
+   unsigned end=start+1u+((start+scenario*17u)%45u);if(end>224u)end=224u;
+   CHECK(range_equal(start,end));start=end;
+  }
   for(unsigned line=0;line<224;line++){uint32_t a[320]={0},b[320]={0};unsigned evaluated;CHECK(kof_lspc_line(v,KOF_LSPC_WORDS,z,sizeof z,scenario,line,scenario&1,&o)==0);CHECK(!kof_lspc_line_scheduled(&schedule,v,KOF_LSPC_WORDS,z,sizeof z,scenario,line,scenario&1,&fast));CHECK(equal_ir(&o,&fast));reference(line,scenario,a,&evaluated);replay(&o,b);CHECK(evaluated==o.evaluated);CHECK(!memcmp(a,b,sizeof a));for(unsigned j=0;j<o.count;j++){CHECK(o.sprites[j].x+o.sprites[j].width<=320);if(j)CHECK(o.sprites[j-1].slot<o.sprites[j].slot);}for(unsigned col=0;col<40;col++){unsigned e=v[0x7000+32*col+(line+16)/8];CHECK(o.fix[col].tile==(e&4095u)&&o.fix[col].palette==(e>>12)&&o.fix[col].row==((line+16)&7));}}
  }
  /* Raster mutations: SCB1 and FIX values are sampled live, control words

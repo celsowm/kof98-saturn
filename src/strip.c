@@ -120,7 +120,7 @@ static unsigned source_row(const kof_lspc_column *c,const uint8_t *z,unsigned y)
     return invert?(a^511u):a;
 }
 static int selected(const kof_lspc_column *c,unsigned y){
-    return (c->selected[y>>5]>>(y&31u))&1u;
+    return (c->selected[y>>5]&kof_lspc_bit[y&31u])!=0;
 }
 int kof_strip_push_epoch(kof_strip_builder *b,kof_strip_builder *f,
     const kof_lspc_schedule *schedule,const uint16_t *v,const uint8_t *z,

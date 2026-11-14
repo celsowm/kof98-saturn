@@ -13,6 +13,14 @@
 #ifndef KOF_LIVE_EPOCHS
 #define KOF_LIVE_EPOCHS 1
 #endif
+#ifndef KOF_LIVE_RANGE_SCHEDULE
+#define KOF_LIVE_RANGE_SCHEDULE 1
+#endif
+#if KOF_LIVE_RANGE_SCHEDULE && !KOF_LIVE_EPOCHS
+#undef KOF_LIVE_RANGE_SCHEDULE
+#define KOF_LIVE_RANGE_SCHEDULE 0
+#endif
+volatile uint32_t kof_sequence_live_range_schedule,kof_sequence_live_schedule_lines;
 #if KOF_LIVE_EPOCHS && (!KOF_LIVE_SCHEDULED || !KOF_LIVE_VERSIONED_STRIPS)
 #error Epoch builder requires schedule and palette versions
 #endif
@@ -68,6 +76,24 @@ static uint32_t take(const uint8_t **p,const uint8_t *end){
     check((size_t)(end-*p)>=2u);
     uint32_t n=((uint32_t)(*p)[0]<<8)|(*p)[1];*p+=2;return n;
 }
+#if KOF_LIVE_RANGE_SCHEDULE
+/* Conservative lookahead: stop before any control write, even a no-op.
+ * Do not consume the trace or use future values. Bounds checked here;
+ * full packet validation still happens in the normal reader. */
+static unsigned control_until(const uint8_t *p,const uint8_t *end,unsigned line){
+    while(line<224u){
+        if((size_t)(end-p)<6u)return line;
+        unsigned n=((unsigned)p[4]<<8)|p[5];p+=6;
+        if((size_t)(end-p)<n*4u)return line;
+        for(unsigned j=0;j<n;++j,p+=4){
+            unsigned idx=((unsigned)p[0]<<8)|p[1];
+            if(idx>=0x8000u&&idx<KOF_LSPC_WORDS)return line;
+        }
+        ++line;
+    }
+    return line;
+}
+#endif
 static uint32_t hash_byte(uint32_t h,unsigned v){return (h^(v&255u))*16777619u;}
 static uint32_t hash_word(uint32_t h,unsigned v){return hash_byte(hash_byte(h,v>>8),v);}
 static uint32_t strip_hash(uint32_t h,const kof_strip_builder *b,unsigned bias){
@@ -95,6 +121,9 @@ static void build_strips(const seq_live_frame *f){
 #endif
     check(!kof_strip_begin(&sprites,sprite_strips,LIVE_MAX_SPRITES));
     check(!kof_strip_begin(&fix,fix_strips,LIVE_MAX_FIX));
+#if KOF_LIVE_RANGE_SCHEDULE
+    unsigned schedule_until=0;
+#endif
     for(unsigned y=0;y<224u;++y){
         unsigned anim=take(&p,end),bios=take(&p,end),n=take(&p,end);
         check(anim<8u&&bios<2u&&n<=LIVE_STATE_WORDS);
@@ -118,11 +147,24 @@ static void build_strips(const seq_live_frame *f){
         const uint16_t *pal=live_state+KOF_LSPC_WORDS;
         check(kof_lspc_rgb555(pal[4095])==f->bg);
 #if KOF_LIVE_SCHEDULED
-        if(schedule_dirty){
-            t=ticks();check(!kof_lspc_schedule_build(&schedule,live_state,KOF_LSPC_WORDS));
+#if KOF_LIVE_RANGE_SCHEDULE
+        if(schedule_dirty||y>=schedule_until){
+            t=ticks();
+            schedule_until=control_until(p,end,y+1u);
+            check(schedule_until>y);
+            check(!kof_lspc_schedule_build_range(&schedule,live_state,KOF_LSPC_WORDS,y,schedule_until));
+            kof_sequence_live_schedule_lines+=schedule_until-y;
             kof_sequence_live_schedule_ticks+=ticks()-t;
             ++kof_sequence_live_schedule_builds;schedule_dirty=0;
         }
+#else
+        if(schedule_dirty){
+            t=ticks();check(!kof_lspc_schedule_build(&schedule,live_state,KOF_LSPC_WORDS));
+            kof_sequence_live_schedule_lines+=224u;
+            kof_sequence_live_schedule_ticks+=ticks()-t;
+            ++kof_sequence_live_schedule_builds;schedule_dirty=0;
+        }
+#endif
 #if KOF_LIVE_EPOCHS
         /* Consume only subsequent unchanged line headers of the same epoch.
          * Keep the next mutation header for the outer loop. */
@@ -305,6 +347,7 @@ int main(void){
     kof_sequence_live_scheduled=KOF_LIVE_SCHEDULED;
     kof_sequence_live_versioned_strips=KOF_LIVE_VERSIONED_STRIPS;
     kof_sequence_live_epochs=KOF_LIVE_EPOCHS;
+    kof_sequence_live_range_schedule=KOF_LIVE_RANGE_SCHEDULE;
     kof_sequence_live_timer_hz=sat_time_frequency_hz();
     kof_sequence_live_frame_count=sizeof seq_live_frames/sizeof seq_live_frames[0];
     for(;;){
