@@ -36,3 +36,5 @@ Experimental [fixed counter batching](docs/X2_CYCLE_BATCH.md): `-DKOF_OPT_CYCLES
 Experimental [local data register caching](docs/X2_REGISTER_CACHE.md): `-DKOF_OPT_REGCACHE=ON`, default OFF. Measure independently from flags, cycles and CFG.
 
 [Profile-driven native residency](docs/X2_NATIVE_RESIDENCY.md) collects local entry frequencies and SH-2 symbol sizes to select whole routines within an estimated memory budget. No actual game profile, target size or playability claim yet.
+
+[X3 phase asset residency](docs/X3_ASSET_RESIDENCY.md): heap-free 4 MiB cart arena, generation handles, bounded loading, CRC validation and combat lock. Portable core tests pass; the installed-SDK adapter is not target-validated yet.
