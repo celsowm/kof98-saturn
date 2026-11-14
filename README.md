@@ -22,3 +22,5 @@ The sparse and paged dispatchers are standalone prototypes, not yet wired into n
 ## Credits
 
 Danilo P. da Silva (KOF98 Recomp and toolkit improvements), sp00nznet (neogeorecomp), LibSaturn contributors, and SNK (original game and intellectual property). Unofficial fan research; not affiliated with SNK or Sega.
+
+The [offline dispatch packer](docs/X1_GENERATED_DISPATCH.md) converts locally generated upstream tables to immutable paged C arrays. Runtime wiring remains pending.
