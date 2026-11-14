@@ -44,3 +44,5 @@ Experimental [local data register caching](docs/X2_REGISTER_CACHE.md): `-DKOF_OP
 [X4 native tile cache](docs/X4_TILE_CACHE.md): independent LUT4 pattern/LUT slots, binary lookup of resident tile packs, current-list pins and fenced SDK writes. Synthetic core tests pass; target integration remains open.
 
 [X4 LSPC scanline IR](docs/X4_LSPC_IR.md): portable ordered sprite spans and FIX addressing with exact oracle-derived shrink masks. Synthetic differential tests pass; target command emission remains open.
+
+[X4 exact vertical strips](docs/X4_STRIP_COALESCING.md): ordered scanline coalescing, native-tile detection and exact 4bpp shrink materialization. GCC/Clang synthetic replay matches; SDK emitter and actual game traces remain open.
