@@ -29,3 +29,72 @@ int kof_lspc_line(const uint16_t *v,uint32_t words,const uint8_t *z,uint32_t nz,
  for(unsigned col=0;col<40;col++){uint16_t e=v[0x7000+col*32u+(unsigned)scan/8u];o->fix[col]=(kof_fix_span){.tile=e&4095u,.column=(uint8_t)col,.row=(uint8_t)(scan&7),.palette=(uint8_t)(e>>12)};}
  return 0;
 }
+
+/* Append a vertical interval to the first 96 evaluated slots of each line.
+ * The scanline limit is applied BEFORE horizontal clipping, as in LSPC. */
+static void schedule_range(kof_lspc_schedule *s,unsigned n,unsigned first,unsigned end){
+    if(end>224u)end=224u;
+    for(unsigned y=first;y<end;++y){
+        unsigned k=s->count[y];
+        if(k<KOF_LINE_SPRITES){s->slots[y][k]=(uint16_t)n;s->count[y]=(uint8_t)(k+1u);}
+    }
+}
+int kof_lspc_schedule_build(kof_lspc_schedule *s,const uint16_t *v,uint32_t words){
+    if(!s||!v||words<KOF_LSPC_WORDS)return -1;
+    for(unsigned i=0;i<224u;++i)s->count[i]=0;
+    unsigned x=0,y=0,rows=0,zy=0,zx=0;
+    for(unsigned n=0;n<381u;++n){
+        unsigned ctl=v[0x8200u+n],zoom=v[0x8000u+n];
+        if(ctl&64u){x=(x+zx+1u)&511u;zx=(zoom>>8)&15u;}
+        else{y=512u-(ctl>>7);x=v[0x8400u+n]>>7;zy=zoom&255u;zx=(zoom>>8)&15u;rows=ctl&63u;}
+        if(!rows)continue;
+        unsigned px=x,mask=0,first=0,width=0;
+        /* Common unclipped case: width is the zoom nibble + one. */
+        if(x+zx<320u){mask=masks[zx];first=x;width=zx+1u;}
+        else if(x<320u||x+zx>=512u){
+            for(unsigned i=0;i<16u;++i)if(masks[zx]&(1u<<i)){
+                if(px<320u){if(!width)first=px;mask|=1u<<i;++width;}
+                px=(px+1u)&511u;
+            }
+        }
+        s->columns[n]=(kof_lspc_column){.x=(uint16_t)first,.mask=(uint16_t)mask,.y=(uint16_t)y,
+            .width=(uint8_t)width,.rows=(uint8_t)rows,.zy=(uint8_t)zy};
+        const unsigned begin=(y-16u)&511u;
+        const unsigned end=begin+16u*(rows>32u?32u:rows);
+        schedule_range(s,n,begin,end);
+        if(end>512u)schedule_range(s,n,0,end-512u);
+    }
+    return 0;
+}
+int kof_lspc_line_scheduled(const kof_lspc_schedule *s,const uint16_t *v,uint32_t words,
+    const uint8_t *z,uint32_t nz,unsigned anim,unsigned line,int bios,kof_line_ir *o){
+    if(!s||!v||words<KOF_LSPC_WORDS||!z||nz!=KOF_ZOOM_BYTES||line>=224u||!o||(bios!=0&&bios!=1))return -1;
+    const unsigned scan=line+16u;
+    o->count=0;o->evaluated=s->count[line];o->fix_bios=(uint8_t)bios;
+    for(unsigned i=0;i<o->evaluated;++i){
+        const unsigned n=s->slots[line][i];
+        const kof_lspc_column *c=&s->columns[n];
+        if(!c->width)continue;
+        unsigned sl=(scan-c->y)&511u,zl=sl&255u,invert=sl>>8;
+        if(invert)zl^=255u;
+        if(c->rows>32u){
+            unsigned period=((unsigned)c->zy+1u)*2u;
+            /* Typical full-zoom columns never need a division. */
+            if(zl>=period)zl%=period;
+            if(zl>c->zy){zl=period-1u-zl;invert^=1u;}
+        }
+        unsigned yt=z[((unsigned)c->zy<<8)|zl],tile=yt>>4,row=yt&15u;
+        if(invert){row^=15u;tile^=31u;}
+        unsigned tm=n*64u+tile*2u,attr=v[tm+1u];
+        uint32_t code=v[tm]|((attr&0xf0u)<<12);
+        if(attr&8u)code=(code&~7u)|(anim&7u);else if(attr&4u)code=(code&~3u)|(anim&3u);
+        if(attr&2u)row^=15u;
+        o->sprites[o->count++]=(kof_sprite_span){.tile=code&0x7ffffu,.mask=c->mask,.x=c->x,
+             .slot=(uint16_t)n,.row=(uint8_t)row,.palette=(uint8_t)(attr>>8),.flip=(uint8_t)(attr&1u),.width=c->width};
+    }
+    for(unsigned col=0;col<40u;++col){
+        uint16_t e=v[0x7000u+col*32u+scan/8u];
+        o->fix[col]=(kof_fix_span){.tile=e&4095u,.column=(uint8_t)col,.row=(uint8_t)(scan&7u),.palette=(uint8_t)(e>>12)};
+    }
+    return 0;
+}

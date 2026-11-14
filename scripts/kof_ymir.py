@@ -108,7 +108,10 @@ def resolve_symbols(elf,build):
               'kof_sequence_live_verified','kof_sequence_live_hash_errors','kof_sequence_live_cache_hits',
               'kof_sequence_live_cache_misses','kof_sequence_live_lut_hits','kof_sequence_live_lut_misses',
               'kof_sequence_live_trace_fields','kof_sequence_live_lspc_fields','kof_sequence_live_draw_fields',
-              'kof_sequence_live_frame_count')
+              'kof_sequence_live_frame_count','kof_sequence_live_scheduled','kof_sequence_live_schedule_builds',
+              'kof_sequence_live_eval_slots','kof_sequence_live_timer_hz','kof_sequence_live_schedule_ticks',
+              'kof_sequence_live_line_ticks','kof_sequence_live_strip_ticks','kof_sequence_live_hash_ticks',
+              'kof_sequence_live_cache_ticks','kof_sequence_live_read_ticks','kof_sequence_live_timed_frames')
     return {k:found[k] for k in (*SYMBOLS,*optional) if k in found}
 
 def main():

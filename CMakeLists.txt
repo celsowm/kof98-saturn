@@ -119,6 +119,7 @@ if(KOF_FRAME_DIR)
   libsaturn_add_disc(kof_frame_replay ROOT_FILES "${KOF_FRAME_DIR}/FRAME.BIN")
 endif()
 
+option(KOF_LIVE_SCHEDULED "Use cached LSPC scanline schedule in live replay" ON)
 option(KOF_SEQUENCE_BATCH "Emit replay sprites through SDK direct batch window" ON)
 option(KOF_SEQUENCE_BATCH_PRECLIP_OPT "Enable SDK safe pre-clipping skip for batch sprites" OFF)
 set(KOF_SEQUENCE_DIR "" CACHE PATH "Local validated replay sequence")
@@ -132,6 +133,7 @@ if(KOF_SEQUENCE_DIR)
   endif()
   add_executable(kof_sequence_replay src/saturn/sequence_replay.c)
   target_compile_definitions(kof_sequence_replay PRIVATE KOF_SEQUENCE_LOAD_CHUNK_BYTES=${KOF_SEQUENCE_LOAD_CHUNK_BYTES}
+    KOF_LIVE_SCHEDULED=$<BOOL:${KOF_LIVE_SCHEDULED}>
     KOF_SEQUENCE_BATCH=$<BOOL:${KOF_SEQUENCE_BATCH}>
     KOF_SEQUENCE_BATCH_PRECLIP_OPT=$<BOOL:${KOF_SEQUENCE_BATCH_PRECLIP_OPT}>)
   target_include_directories(kof_sequence_replay PRIVATE "${KOF_SEQUENCE_DIR}")

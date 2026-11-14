@@ -2,6 +2,10 @@
  * LSPC and strip coalescing execute on Master SH-2. This diagnostic draws
  * FIX through VDP1 too, independently of the optimized resident control. */
 #include "kof98/strip.h"
+#include <saturn/time.h>
+#ifndef KOF_LIVE_SCHEDULED
+#define KOF_LIVE_SCHEDULED 1
+#endif
 #include "../bytes.h"
 #define LIVE_STATE_WORDS (KOF_LSPC_WORDS+4096u)
 #define LIVE_PAT_SLOTS 2048u
@@ -15,6 +19,17 @@ static _Alignas(32) uint32_t tile_ids[LIVE_TILE_COUNT];
 static kof_strip sprite_strips[LIVE_MAX_SPRITES],fix_strips[LIVE_MAX_FIX];
 static kof_strip_builder sprites,fix;
 static kof_line_ir ir,fix_ir;
+#if KOF_LIVE_SCHEDULED
+static kof_lspc_schedule schedule;
+static uint8_t schedule_dirty=1;
+#endif
+volatile uint32_t kof_sequence_live_scheduled,kof_sequence_live_schedule_builds;
+volatile uint32_t kof_sequence_live_eval_slots,kof_sequence_live_timer_hz;
+volatile uint32_t kof_sequence_live_schedule_ticks,kof_sequence_live_line_ticks;
+volatile uint32_t kof_sequence_live_strip_ticks,kof_sequence_live_hash_ticks;
+volatile uint32_t kof_sequence_live_cache_ticks,kof_sequence_live_read_ticks;
+volatile uint32_t kof_sequence_live_timed_frames;
+static uint32_t ticks(void){return (uint32_t)sat_time_ticks();}
 static kof_asset_handle asset;
 static uint32_t atlas_base,stamp;
 volatile uint32_t kof_sequence_live_verified,kof_sequence_live_hash_errors;
@@ -53,7 +68,9 @@ static uint32_t strip_hash(uint32_t h,const kof_strip_builder *b,unsigned bias){
 }
 static void build_strips(const seq_live_frame *f){
     uint32_t start=sat_field_count();
+    uint32_t t=ticks();
     read_live(f->offset,scratch,f->bytes);
+    kof_sequence_live_read_ticks+=ticks()-t;
     kof_sequence_live_trace_fields+=sat_field_count()-start;
     start=sat_field_count();
     const uint8_t *p=scratch,*end=scratch+f->bytes;
@@ -66,11 +83,28 @@ static void build_strips(const seq_live_frame *f){
         for(unsigned j=0;j<n;++j){
             unsigned idx=take(&p,end),val=take(&p,end);
             check(idx<LIVE_STATE_WORDS&&(!j||idx>last));last=idx;
+#if KOF_LIVE_SCHEDULED
+            if(idx>=0x8000u&&idx<KOF_LSPC_WORDS&&live_state[idx]!=val)schedule_dirty=1;
+#endif
             live_state[idx]=(uint16_t)val;
         }
         const uint16_t *pal=live_state+KOF_LSPC_WORDS;
         check(kof_lspc_rgb555(pal[4095])==f->bg);
+#if KOF_LIVE_SCHEDULED
+        if(schedule_dirty){
+            t=ticks();check(!kof_lspc_schedule_build(&schedule,live_state,KOF_LSPC_WORDS));
+            kof_sequence_live_schedule_ticks+=ticks()-t;
+            ++kof_sequence_live_schedule_builds;schedule_dirty=0;
+        }
+        t=ticks();
+        check(!kof_lspc_line_scheduled(&schedule,live_state,KOF_LSPC_WORDS,zoom,sizeof zoom,anim,y,(int)bios,&ir));
+#else
+        t=ticks();
         check(!kof_lspc_line(live_state,KOF_LSPC_WORDS,zoom,sizeof zoom,anim,y,(int)bios,&ir));
+#endif
+        kof_sequence_live_line_ticks+=ticks()-t;
+        kof_sequence_live_eval_slots+=ir.evaluated;
+        t=ticks();
         check(!kof_strip_push(&sprites,&ir,pal,4096u));
         fix_ir.count=40;
         for(unsigned col=0;col<40u;++col){
@@ -80,12 +114,15 @@ static void build_strips(const seq_live_frame *f){
                 .palette=q->palette,.width=8u};
         }
         check(!kof_strip_push(&fix,&fix_ir,pal,4096u));
+        kof_sequence_live_strip_ticks+=ticks()-t;
     }
     check(p==end&&kof_strip_complete(&sprites)&&kof_strip_complete(&fix));
+    t=ticks();
     const uint32_t h=strip_hash(strip_hash(2166136261u,&sprites,0),&fix,524288u);
     if(h!=f->hash||sprites.count!=f->sprites||fix.count!=f->fix){
         ++kof_sequence_live_hash_errors;check(0);
     }
+    kof_sequence_live_hash_ticks+=ticks()-t;
     ++kof_sequence_live_verified;
     kof_sequence_live_lspc_fields+=sat_field_count()-start;
 }
@@ -214,15 +251,20 @@ int main(void){
     for(unsigned i=0;i<4u;++i)
         SAT_PANIC_IF_ERROR(sat_sprite_frame_init_raw(&prefixes[i],(uint16_t)(atlas_base/8u),
           8u,1u,SAT_VDP1_TEXTURE_LUT4,(uint16_t)(atlas_base/8u),(uint16_t)(i<<5),0,0));
+    kof_sequence_live_scheduled=KOF_LIVE_SCHEDULED;
+    kof_sequence_live_timer_hz=sat_time_frequency_hz();
     kof_sequence_live_frame_count=sizeof seq_live_frames/sizeof seq_live_frames[0];
     for(;;){
         read_live(0,live_state,sizeof live_state);
+#if KOF_LIVE_SCHEDULED
+        schedule_dirty=1;
+#endif
         for(unsigned i=0;i<kof_sequence_live_frame_count;++i){
             const seq_live_frame *f=&seq_live_frames[i];
             check(f->bytes<=sizeof scratch);
             kof_sequence_stage=5;
             build_strips(f);
-            uint32_t start=sat_field_count();
+            uint32_t start=sat_field_count(),draw_start=ticks();
             if(++stamp==0){for(unsigned j=0;j<LIVE_PAT_SLOTS;++j)patterns[j].stamp=0;
                 for(unsigned j=0;j<LIVE_LUT_SLOTS;++j)luts[j].stamp=0;stamp=1;}
             SAT_PANIC_IF_ERROR(sat_set_clear_color(f->bg));
@@ -236,6 +278,8 @@ int main(void){
             SAT_PANIC_IF_ERROR(sat_sprite_batch_end(&win,&stats));
             check(count==stats.submitted&&!stats.culled&&!stats.dropped&&!stats.invalid);
             kof_sequence_live_draw_fields+=sat_field_count()-start;
+            kof_sequence_live_cache_ticks+=ticks()-draw_start;
+            ++kof_sequence_live_timed_frames;
             kof_sequence_stage=4;
             SAT_PANIC_IF_ERROR(sat_end_frame());
             SAT_PANIC_IF_ERROR(sat_wait_vblank());
