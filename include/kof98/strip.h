@@ -30,6 +30,13 @@ int kof_strip_push(kof_strip_builder*,const kof_line_ir*,const uint16_t*,uint32_
  * if all 16 raw words agree, exactly as the reference path does.
  * Do not mix ordinary and versioned pushes within a frame. */
 int kof_strip_push_versioned(kof_strip_builder*,const kof_line_ir*,const uint16_t*,uint32_t palette_words,const uint16_t versions[256]);
+/* Process a constant-state raster interval [builder.line,end). The schedule
+ * must correspond to SCB2/3/4 in vram. Both builders are advanced together;
+ * order is by slot (allocation order may differ from line-oriented pushes).
+ * Caller splits at every VRAM/palette/animation/FIX-source change. */
+int kof_strip_push_epoch(kof_strip_builder *sprites,kof_strip_builder *fix,
+    const kof_lspc_schedule*,const uint16_t *vram,const uint8_t *zoom,
+    const uint16_t *pal,const uint16_t versions[256],unsigned anim,int bios,unsigned end);
 int kof_strip_complete(const kof_strip_builder*);
 /* Iterate head[0..380], then next: preserves slot painter order. */
 /* 1: original 16x16 pattern reusable, flips returned separately. */

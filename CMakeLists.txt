@@ -119,6 +119,7 @@ if(KOF_FRAME_DIR)
   libsaturn_add_disc(kof_frame_replay ROOT_FILES "${KOF_FRAME_DIR}/FRAME.BIN")
 endif()
 
+option(KOF_LIVE_EPOCHS "Build strips in constant raster-state epochs" ON)
 option(KOF_LIVE_VERSIONED_STRIPS "Use exact versioned palette keys during strip coalescing" ON)
 option(KOF_LIVE_SCHEDULED "Use cached LSPC scanline schedule in live replay" ON)
 option(KOF_SEQUENCE_BATCH "Emit replay sprites through SDK direct batch window" ON)
@@ -136,6 +137,7 @@ if(KOF_SEQUENCE_DIR)
   target_compile_definitions(kof_sequence_replay PRIVATE KOF_SEQUENCE_LOAD_CHUNK_BYTES=${KOF_SEQUENCE_LOAD_CHUNK_BYTES}
     KOF_LIVE_SCHEDULED=$<BOOL:${KOF_LIVE_SCHEDULED}>
     KOF_LIVE_VERSIONED_STRIPS=$<BOOL:${KOF_LIVE_VERSIONED_STRIPS}>
+    KOF_LIVE_EPOCHS=$<BOOL:${KOF_LIVE_EPOCHS}>
     KOF_SEQUENCE_BATCH=$<BOOL:${KOF_SEQUENCE_BATCH}>
     KOF_SEQUENCE_BATCH_PRECLIP_OPT=$<BOOL:${KOF_SEQUENCE_BATCH_PRECLIP_OPT}>)
   target_include_directories(kof_sequence_replay PRIVATE "${KOF_SEQUENCE_DIR}")

@@ -19,6 +19,8 @@ int kof_lspc_line(const uint16_t *vram, uint32_t words, const uint8_t *zoom, uin
 typedef struct {
     uint16_t x,mask,y;
     uint8_t width,rows,zy;
+    uint16_t first,last; /* selected visible line interval, last exclusive */
+    uint32_t selected[7]; /* selected by 96-slot limit, not just vertical visibility */
 } kof_lspc_column;
 typedef struct {
     kof_lspc_column columns[381];

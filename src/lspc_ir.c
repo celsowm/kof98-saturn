@@ -36,7 +36,11 @@ static void schedule_range(kof_lspc_schedule *s,unsigned n,unsigned first,unsign
     if(end>224u)end=224u;
     for(unsigned y=first;y<end;++y){
         unsigned k=s->count[y];
-        if(k<KOF_LINE_SPRITES){s->slots[y][k]=(uint16_t)n;s->count[y]=(uint8_t)(k+1u);}
+        if(k<KOF_LINE_SPRITES){
+            s->slots[y][k]=(uint16_t)n;s->count[y]=(uint8_t)(k+1u);
+            kof_lspc_column *c=&s->columns[n];
+            if(c->width){c->selected[y>>5]|=1u<<(y&31u);if(y<c->first)c->first=(uint16_t)y;if(y+1u>c->last)c->last=(uint16_t)(y+1u);}
+        }
     }
 }
 int kof_lspc_schedule_build(kof_lspc_schedule *s,const uint16_t *v,uint32_t words){
@@ -47,6 +51,7 @@ int kof_lspc_schedule_build(kof_lspc_schedule *s,const uint16_t *v,uint32_t word
         unsigned ctl=v[0x8200u+n],zoom=v[0x8000u+n];
         if(ctl&64u){x=(x+zx+1u)&511u;zx=(zoom>>8)&15u;}
         else{y=512u-(ctl>>7);x=v[0x8400u+n]>>7;zy=zoom&255u;zx=(zoom>>8)&15u;rows=ctl&63u;}
+        s->columns[n].first=224u;s->columns[n].last=0u;
         if(!rows)continue;
         unsigned px=x,mask=0,first=0,width=0;
         /* Common unclipped case: width is the zoom nibble + one. */
@@ -58,7 +63,7 @@ int kof_lspc_schedule_build(kof_lspc_schedule *s,const uint16_t *v,uint32_t word
             }
         }
         s->columns[n]=(kof_lspc_column){.x=(uint16_t)first,.mask=(uint16_t)mask,.y=(uint16_t)y,
-            .width=(uint8_t)width,.rows=(uint8_t)rows,.zy=(uint8_t)zy};
+            .width=(uint8_t)width,.rows=(uint8_t)rows,.zy=(uint8_t)zy,.first=224u};
         const unsigned begin=(y-16u)&511u;
         const unsigned end=begin+16u*(rows>32u?32u:rows);
         schedule_range(s,n,begin,end);

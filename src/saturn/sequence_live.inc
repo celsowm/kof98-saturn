@@ -10,6 +10,13 @@
 #ifndef KOF_LIVE_VERSIONED_STRIPS
 #define KOF_LIVE_VERSIONED_STRIPS 1
 #endif
+#ifndef KOF_LIVE_EPOCHS
+#define KOF_LIVE_EPOCHS 1
+#endif
+#if KOF_LIVE_EPOCHS && (!KOF_LIVE_SCHEDULED || !KOF_LIVE_VERSIONED_STRIPS)
+#error Epoch builder requires schedule and palette versions
+#endif
+volatile uint32_t kof_sequence_live_epochs,kof_sequence_live_epoch_count;
 #if KOF_LIVE_VERSIONED_STRIPS
 static uint16_t palette_versions[256];
 #endif
@@ -25,7 +32,9 @@ static _Alignas(32) uint8_t zoom[KOF_ZOOM_BYTES];
 static _Alignas(32) uint32_t tile_ids[LIVE_TILE_COUNT];
 static kof_strip sprite_strips[LIVE_MAX_SPRITES],fix_strips[LIVE_MAX_FIX];
 static kof_strip_builder sprites,fix;
+#if !KOF_LIVE_EPOCHS
 static kof_line_ir ir,fix_ir;
+#endif
 #if KOF_LIVE_SCHEDULED
 static kof_lspc_schedule schedule;
 static uint8_t schedule_dirty=1;
@@ -114,12 +123,27 @@ static void build_strips(const seq_live_frame *f){
             kof_sequence_live_schedule_ticks+=ticks()-t;
             ++kof_sequence_live_schedule_builds;schedule_dirty=0;
         }
+#if KOF_LIVE_EPOCHS
+        /* Consume only subsequent unchanged line headers of the same epoch.
+         * Keep the next mutation header for the outer loop. */
+        unsigned stop=y+1u;
+        while(stop<224u&&(size_t)(end-p)>=6u&&
+              p[0]==0u&&p[1]==anim&&p[2]==0u&&p[3]==bios&&p[4]==0u&&p[5]==0u){p+=6u;++stop;}
+        t=ticks();
+        check(!kof_strip_push_epoch(&sprites,&fix,&schedule,live_state,zoom,pal,palette_versions,anim,(int)bios,stop));
+        kof_sequence_live_strip_ticks+=ticks()-t;
+        ++kof_sequence_live_epoch_count;
+        for(unsigned line=y;line<stop;++line)kof_sequence_live_eval_slots+=schedule.count[line];
+        y=stop-1u;
+#else
         t=ticks();
         check(!kof_lspc_line_scheduled(&schedule,live_state,KOF_LSPC_WORDS,zoom,sizeof zoom,anim,y,(int)bios,&ir));
+#endif
 #else
         t=ticks();
         check(!kof_lspc_line(live_state,KOF_LSPC_WORDS,zoom,sizeof zoom,anim,y,(int)bios,&ir));
 #endif
+#if !KOF_LIVE_EPOCHS
         kof_sequence_live_line_ticks+=ticks()-t;
         kof_sequence_live_eval_slots+=ir.evaluated;
         t=ticks();
@@ -141,6 +165,7 @@ static void build_strips(const seq_live_frame *f){
         check(!kof_strip_push(&fix,&fix_ir,pal,4096u));
 #endif
         kof_sequence_live_strip_ticks+=ticks()-t;
+#endif
     }
     check(p==end&&kof_strip_complete(&sprites)&&kof_strip_complete(&fix));
     t=ticks();
@@ -279,6 +304,7 @@ int main(void){
           8u,1u,SAT_VDP1_TEXTURE_LUT4,(uint16_t)(atlas_base/8u),(uint16_t)(i<<5),0,0));
     kof_sequence_live_scheduled=KOF_LIVE_SCHEDULED;
     kof_sequence_live_versioned_strips=KOF_LIVE_VERSIONED_STRIPS;
+    kof_sequence_live_epochs=KOF_LIVE_EPOCHS;
     kof_sequence_live_timer_hz=sat_time_frequency_hz();
     kof_sequence_live_frame_count=sizeof seq_live_frames/sizeof seq_live_frames[0];
     for(;;){

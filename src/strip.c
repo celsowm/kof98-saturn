@@ -76,6 +76,92 @@ int kof_strip_push_versioned(kof_strip_builder *b,const kof_line_ir *ir,const ui
     ++b->line;return 0;
 fail:b->failed=1;return -1;
 }
+/* Append a contiguous run in one slot. All fields except row and y remain
+ * constant; runs may span a strip boundary. Exact palette checks are still
+ * required when tokens differ. Only this internal caller supplies runs. */
+static int append_run(kof_strip_builder *b,unsigned slot,unsigned y,uint32_t tile,
+    unsigned x,uint16_t mask,unsigned width,unsigned flip,unsigned palette,
+    const uint16_t *pal,const uint16_t *versions,const uint8_t *rows,unsigned n){
+    const uint16_t *colors=pal+16u*palette;
+    const uint32_t token=1u+((uint32_t)versions[palette]<<8)+palette;
+    uint16_t tail=b->tail[slot];
+    kof_strip *s=tail==KOF_STRIP_END?NULL:&b->strips[tail];
+    if(s&&s->height<16u&&s->y+s->height==y&&s->tile==tile&&s->x==x&&
+       s->mask==mask&&s->flip==flip&&
+       (b->palette_token[slot]==token||palette_equal(s->colors,colors))){
+        unsigned take=16u-s->height;if(take>n)take=n;
+        for(unsigned i=0;i<take;++i)s->rows[s->height+i]=rows[i];
+        s->height=(uint8_t)(s->height+take);b->spans+=take;
+        y+=take;rows+=take;n-=take;
+    }
+    if(n){
+        if(b->count==b->capacity)return -1;
+        uint16_t idx=b->count++;
+        if(s)s->next=idx;else b->head[slot]=idx;
+        b->tail[slot]=idx;s=&b->strips[idx];
+        *s=(kof_strip){.tile=tile,.x=(uint16_t)x,.y=(uint16_t)y,.mask=mask,
+            .next=KOF_STRIP_END,.width=(uint8_t)width,.flip=(uint8_t)flip,.height=(uint8_t)n};
+        memcpy(s->colors,colors,32u);
+        for(unsigned i=0;i<n;++i)s->rows[i]=rows[i];
+        b->spans+=n;
+    }
+    b->palette_token[slot]=token;
+    return 0;
+}
+static unsigned source_row(const kof_lspc_column *c,const uint8_t *z,unsigned y){
+    unsigned sl=(y+16u-c->y)&511u,zl=sl&255u,invert=sl>>8;
+    if(invert)zl^=255u;
+    if(c->rows>32u){
+        unsigned period=((unsigned)c->zy+1u)*2u;
+        if(zl>=period)zl%=period;
+        if(zl>c->zy){zl=period-1u-zl;invert^=1u;}
+    }
+    unsigned a=z[((unsigned)c->zy<<8)|zl];
+    return invert?(a^511u):a;
+}
+static int selected(const kof_lspc_column *c,unsigned y){
+    return (c->selected[y>>5]>>(y&31u))&1u;
+}
+int kof_strip_push_epoch(kof_strip_builder *b,kof_strip_builder *f,
+    const kof_lspc_schedule *schedule,const uint16_t *v,const uint8_t *z,
+    const uint16_t *pal,const uint16_t versions[256],unsigned anim,int bios,unsigned end){
+    if(!b||!f||b==f||!b->strips||!f->strips||b->failed||f->failed)return -1;
+    if(!schedule||!v||!z||!pal||!versions||(bios!=0&&bios!=1)||b->line!=f->line||end<=b->line||end>224u)goto fail_epoch;
+    const unsigned first=b->line;
+    for(unsigned slot=0;slot<381u;++slot){
+        const kof_lspc_column *c=&schedule->columns[slot];
+        unsigned y=c->first>first?c->first:first,stop=c->last<end?c->last:end;
+        while(y<stop){
+            if(!selected(c,y)){++y;continue;}
+            unsigned a=source_row(c,z,y),tm=slot*64u+(a>>4)*2u,attr=v[tm+1u];
+            uint32_t code=v[tm]|((attr&0xf0u)<<12);
+            if(attr&8u)code=(code&~7u)|(anim&7u);else if(attr&4u)code=(code&~3u)|(anim&3u);
+            unsigned flip=(attr&2u)?15u:0u;
+            uint8_t rows[16];unsigned n=0,start=y;
+            do{
+                rows[n++]=(uint8_t)((a&15u)^flip);++y;
+                if(y==stop||n==16u||!selected(c,y))break;
+                a=source_row(c,z,y);
+            }while(slot*64u+(a>>4)*2u==tm);
+            if(append_run(b,slot,start,code&0x7ffffu,c->x,c->mask,c->width,attr&1u,
+                          attr>>8,pal,versions,rows,n))goto fail_epoch;
+        }
+    }
+    for(unsigned col=0;col<40u;++col){
+        unsigned y=first;
+        while(y<end){
+            const unsigned scan=y+16u,entry=v[0x7000u+col*32u+scan/8u],row=scan&7u;
+            unsigned n=8u-row;if(n>end-y)n=end-y;
+            uint8_t rows[16];for(unsigned j=0;j<n;++j)rows[j]=(uint8_t)(row+j);
+            if(append_run(f,col,y,(entry&4095u)+(bios?4096u:0u),col*8u,255u,8u,0u,
+                          entry>>12,pal,versions,rows,n))goto fail_epoch;
+            y+=n;
+        }
+    }
+    b->line=f->line=(uint16_t)end;return 0;
+fail_epoch:
+    b->failed=f->failed=1;return -1;
+}
 int kof_strip_complete(const kof_strip_builder *b){return b&&b->strips&&!b->failed&&b->line==224u;}
 int kof_strip_valid(const kof_strip *s){
     if(!s||!s->height||s->height>16u||!s->width||s->width!=pop(s->mask)||s->flip>1u||s->x+s->width>320u||s->y+s->height>224u)return 0;

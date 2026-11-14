@@ -52,8 +52,70 @@ static int versioned_test(void){
  }
  return 0;
 }
+static kof_lspc_schedule epoch_schedule;
+static uint16_t epoch_vram[KOF_LSPC_WORDS];
+static uint8_t epoch_zoom[KOF_ZOOM_BYTES];
+static kof_strip epoch_fix[2048],ref_fix[2048];
+static int same_chain(const kof_strip_builder *a,const kof_strip_builder *b){
+ if(a->count!=b->count||a->spans!=b->spans)return 0;
+ for(unsigned slot=0;slot<381u;++slot){
+  uint16_t i=a->head[slot],j=b->head[slot];
+  while(i!=KOF_STRIP_END&&j!=KOF_STRIP_END){
+   const kof_strip *x=&a->strips[i],*y=&b->strips[j];
+   if(x->tile!=y->tile||x->x!=y->x||x->y!=y->y||x->mask!=y->mask||
+      x->height!=y->height||x->width!=y->width||x->flip!=y->flip||
+      memcmp(x->colors,y->colors,32)||memcmp(x->rows,y->rows,16))return 0;
+   i=x->next;j=y->next;
+  }
+  if(i!=KOF_STRIP_END||j!=KOF_STRIP_END)return 0;
+ }
+ return 1;
+}
+static int epoch_test(void){
+ kof_strip_builder a,b,af,bf;kof_line_ir ir,fi={0};
+ uint16_t versions[256]={0};
+ memset(epoch_vram,0,sizeof epoch_vram);memset(pal,0,sizeof pal);
+ for(unsigned i=0;i<65536u;++i)epoch_zoom[i]=(uint8_t)(i&255u);
+ for(unsigned i=0;i<4096u;++i)pal[i]=(uint16_t)i;
+ for(unsigned j=0;j<10u;++j){
+  epoch_vram[0x8200u+j]=(uint16_t)(((512u-(j*23u+500u)%512u)&511u)<<7|((j&1u)?33u:8u)|((j%3u==1u)?64u:0u));
+  epoch_vram[0x8000u+j]=(uint16_t)(0x0fffu-((j%5u)<<8));
+  epoch_vram[0x8400u+j]=(uint16_t)(((j==2u)?509u:j*41u)<<7);
+  for(unsigned k=0;k<32u;++k){
+   epoch_vram[j*64u+k*2u]=(uint16_t)(j*3u+k/2u);
+   epoch_vram[j*64u+k*2u+1u]=(uint16_t)(((j%3u)<<8)|(k&15u));
+  }
+ }
+ for(unsigned x=0;x<40u;++x)for(unsigned y=0;y<32u;++y)
+  epoch_vram[0x7000u+x*32u+y]=(uint16_t)(((x%4u)<<12)|(y%3u));
+ CHECK(!kof_strip_begin(&a,strips,2048));CHECK(!kof_strip_begin(&b,fast_strips,2048));
+ CHECK(!kof_strip_begin(&af,ref_fix,2048));CHECK(!kof_strip_begin(&bf,epoch_fix,2048));
+ for(unsigned start=0;start<224u;){
+  unsigned end=start+1u+(start%27u);if(end>224u)end=224u;
+  unsigned anim=start&7u,bios=(start/60u)&1u;
+  epoch_vram[0x8400u+3u]=(uint16_t)(((start+304u)&511u)<<7);
+  epoch_vram[4u]=(uint16_t)start;pal[17]^=0x4000u;++versions[1];
+  CHECK(!kof_lspc_schedule_build(&epoch_schedule,epoch_vram,KOF_LSPC_WORDS));
+  for(unsigned y=start;y<end;++y){
+   CHECK(!kof_lspc_line(epoch_vram,KOF_LSPC_WORDS,epoch_zoom,sizeof epoch_zoom,anim,y,(int)bios,&ir));
+   CHECK(!kof_strip_push(&a,&ir,pal,4096u));fi.count=40;
+   for(unsigned x=0;x<40u;++x){
+    const kof_fix_span *q=&ir.fix[x];
+    fi.sprites[x]=(kof_sprite_span){.tile=(uint32_t)q->tile+(bios?4096u:0u),.mask=255u,.x=(uint16_t)(x*8u),
+       .slot=(uint16_t)x,.row=q->row,.palette=q->palette,.width=8u};
+   }
+   CHECK(!kof_strip_push(&af,&fi,pal,4096u));
+  }
+  CHECK(!kof_strip_push_epoch(&b,&bf,&epoch_schedule,epoch_vram,epoch_zoom,pal,versions,anim,(int)bios,end));
+  start=end;
+ }
+ CHECK(kof_strip_complete(&b)&&kof_strip_complete(&bf));
+ CHECK(same_chain(&a,&b)&&same_chain(&af,&bf));
+ return 0;
+}
 int main(void){
- CHECK(!versioned_test());
+ CHECK(!versioned_test());CHECK(!epoch_test());
+ memset(a,0,sizeof a);memset(b,0,sizeof b);
  kof_strip_builder builder;kof_line_ir ir={0};CHECK(kof_strip_begin(&builder,strips,2048)==0);
  for(unsigned y=0;y<224;++y){
   for(unsigned i=0;i<4096;++i)pal[i]=(uint16_t)(i+1+(y>=100?4096:0));
