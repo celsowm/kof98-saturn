@@ -70,7 +70,7 @@ def span(source, start, end, new):
         raise ValueError(f'upstream span reversed: {start}')
     return source[:lo]+new+source[hi:]
 
-def adapt(source):
+def adapt(source, native_profile=False):
     source = replace_once(source, '#include "ng_internal.h"', '#include "ng_internal.h"\n#include "kof98/paged_dispatch.h"')
     source = span(source, '/* Entry tables for the regions', 'static int s_interp_only;', STORAGE)
     source = replace_once(source, 'static size_t s_nmiss;', 'static size_t s_nmiss;\nstatic int s_miss_overflow;')
@@ -81,17 +81,34 @@ def adapt(source):
     for token in ('s_tab_fixed', 's_tab_bank', 's_tab_bios', 'slot_in(', 'slot(a)'):
         if token in source:
             raise ValueError(f'unhandled dense lookup reference: {token}')
+    if native_profile:
+        source=replace_once(source, '#include "kof98/paged_dispatch.h"', '#include "kof98/paged_dispatch.h"\n#include "kof98/native_profile.h"\nextern const char kof_generated_dispatch_id[];\nstatic int s_native_profile;')
+        source=replace_once(source, '    s_interp_only = interp_only;', '    s_interp_only = interp_only;\n    kof_native_profile_init(getenv("KOF_NATIVE_PROFILE"), kof_generated_dispatch_id);\n    s_native_profile=kof_native_profile_enabled();')
+        source=replace_once(source, '        if (fn) { if (s_verify) run_verified(fn); else fn(); exec_native_blocks++; }', '''        if (fn) {
+            if (s_native_profile) {
+                uint32_t pc=CPU.pc;
+                unsigned bank=(unsigned)bus_bank();
+                uint64_t before=ng_icount;
+                int64_t tick=ng_cycles;
+                if (s_verify) run_verified(fn); else fn();
+                if (ng_cycles<tick || ng_icount<before) abort();
+                kof_native_profile_record(pc, bank, ng_icount-before, (uint64_t)ng_cycles-(uint64_t)tick);
+            } else if (s_verify) run_verified(fn); else fn();
+            exec_native_blocks++;
+        }''')
+        source=replace_once(source,'void exec_report(void) {','void exec_report(void) {\n    kof_native_profile_finish();\n    s_native_profile=0;')
     return source
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('source',type=Path)
     parser.add_argument('output',type=Path)
+    parser.add_argument('--native-profile',action='store_true')
     a=parser.parse_args()
     if a.source.resolve()==a.output.resolve():
         parser.error('refusing to overwrite upstream source')
     try:
-        result=adapt(a.source.read_text(encoding='utf-8'))
+        result=adapt(a.source.read_text(encoding='utf-8'), a.native_profile)
         a.output.parent.mkdir(parents=True,exist_ok=True)
         a.output.write_text(result,encoding='utf-8')
     except (OSError,ValueError) as e:

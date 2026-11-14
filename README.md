@@ -34,3 +34,5 @@ Experimental [local dead flag elimination](docs/X2_FLAG_LIVENESS.md): `-DKOF_OPT
 Experimental [fixed counter batching](docs/X2_CYCLE_BATCH.md): `-DKOF_OPT_CYCLES=ON`, default OFF. Measure separately from flags and CFG sharing.
 
 Experimental [local data register caching](docs/X2_REGISTER_CACHE.md): `-DKOF_OPT_REGCACHE=ON`, default OFF. Measure independently from flags, cycles and CFG.
+
+[Profile-driven native residency](docs/X2_NATIVE_RESIDENCY.md) collects local entry frequencies and SH-2 symbol sizes to select whole routines within an estimated memory budget. No actual game profile, target size or playability claim yet.

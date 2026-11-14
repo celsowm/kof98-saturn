@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Convert pinned m68krecomp C table to local-only paged C, without ROM data in git."""
 import argparse
+import hashlib
 import re
 from pathlib import Path
 
@@ -60,6 +61,17 @@ def emit(entries):
             array('kof_dispatch_fn','functions',funcs)+
             f'const kof_paged_dispatch kof_generated_dispatch = {{directory, offsets, functions, {i}u}};\n')
 
+def fingerprint(table):
+    """Identify the exact generated C set, independent of its directory."""
+    h=hashlib.sha256()
+    inputs=[table,table.parent/'recomp_common.h']+sorted(table.parent.glob('recomp_[0-9][0-9].c'))
+    for path in inputs:
+        data=path.read_bytes()
+        h.update(path.name.encode('utf-8')+b'\0')
+        h.update(len(data).to_bytes(8,'big'))
+        h.update(data)
+    return h.hexdigest()
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('source',type=Path); p.add_argument('output',type=Path)
@@ -67,6 +79,7 @@ def main():
     if a.source.resolve()==a.output.resolve(): p.error('input and output must differ')
     try:
         result=emit(parse(a.source.read_text(encoding='utf-8')))
+        result+=f'const char kof_generated_dispatch_id[] = "{fingerprint(a.source)}";\n'
         a.output.parent.mkdir(parents=True,exist_ok=True)
         a.output.write_text(result,encoding='utf-8')
     except (ValueError,OSError) as e: p.error(str(e))
