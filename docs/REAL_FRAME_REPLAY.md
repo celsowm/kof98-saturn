@@ -181,3 +181,24 @@ VRAM: NBG0 FIX A0 map/B0 chars; NBG1 underlay A1 map/B1 chars, last 32 bytes of 
 User stage-vdp2.zip compared directly with fix-vdp2.zip. Identical probe SHA-256 1e32005f403840e05bbd900828603433a0a87c3b84d9ac966d9ef19153af6ba2, 3600 emulated fields, cache on, injection; stage application SHA-256 a044dc0a6cb598f360bd9ea3c238d2ddc14e8f170b7c85296e4a1d8438ffa536. 2843 submissions, 2843 FIX and stage swap callbacks, zero FIX serial errors, one CD load, no misaligned accesses. Gameplay starts at field 754 (FIX-only 708), loop starts 754,1355,1956,2557,3158, period 601 fields. Nine PNG screenshots byte-identical with FIX-only (645120 RGB pixels). Four complete 600-field windows and 442 available partial-loop fingerprints match the FIX-only first loop positionally, excluding inter-loop extra fields. Nominal cadence 600*60/601 = 59.90 submissions/s. Over four matched 600-field windows (90 BIOS rows offset in transfer/instruction tables), stage VDP1 writes 16469080 words vs FIX-only 16954712; VDP2 writes 200328 vs 27144; CRAM writes zero. Master instructions 808446551 vs 808542151, including wait loops; not a measurement of usable CPU headroom.
 
 Pack: 2997144 B vs 2805848 B FIX-only (+191296 B). 2665 stage tiles, 48 stage palettes (budget exhausted), fallback on all 600 frames; only 16..64 prefix draws removed, mean 25.333 additional draws, leaving 644.322 vs 669.655 FIX-only. Peak actual stage map writes 274 cells; cumulative 101598 stage map updates. No full semantic stage extraction or native parallax. Visual correctness qualified on this replay, but modest VDP1 savings at increased VDP2 traffic, storage and startup cost. Keep FIX-only as preferred control; retain stage underlay as optional experiment rather than claim a general stage optimization. Future stage work should identify original sprite chains and scrolling layers, not expand flattened prefixes blindly. Prioritize phase timing/headroom measurement and live LSPC plus runtime cache integration. No physical-console validation or interactive gameplay yet.
+
+
+## Live LSPC experiment F (first target integration)
+
+A new optional KST1 capture records the exact guest VRAM and palette at visible line zero, then ordered changed words for each scanline, along with animation and BIOS FIX flags. Use the pinned reference capture and original L0 ROM. The new packer uses 16 real frames initially, converts cross-frame state changes to delta packets, includes the raw C/S tiles selected from the KFR2 strips, and stores a full initial snapshot for loop reset. No VDP1 command lists or cache decisions are encoded. The target runs the same kof_lspc_line and kof_strip_push on Master SH-2, checks the full ordered KFR2 strip counts and FNV-1a hash before drawing, then resolves native/variant patterns and palettes in a runtime cache with chained hash buckets, exact keys, current-frame pinning and fenced uploads. FIX is intentionally drawn dynamically on VDP1 in this first independent test; the validated FIX-on-VDP2 path remains the optimized control. Native/variant entries share 2048 fixed 128-byte slots; 128 LUTs; no CD after the initial CRC-checked load. Strip-signature agreement is not proof of exact displayed pixels; compare first-frame and later screenshots in Ymir. The new trace-read, decode and draw counters count field boundaries crossed, not precise cycles. Expect the straightforward scanline interpreter to be considerably slower than the offline replay; optimize after collecting evidence. No 68000 gameplay or slave execution yet.
+
+Windows:
+    cmake --build build-capture --target kof_frame_capture -j 6
+    New-Item -ItemType Directory -Force local/live-capture
+    $env:KOF_CAPTURE_FRAME="4350"
+    $env:KOF_CAPTURE_COUNT="16"
+    $env:KOF_CAPTURE_OUT="$PWD/local/live-capture"
+    $env:KOF_CAPTURE_STATE_DIR="$PWD/local/live-capture"
+    .\build-capture\kof_frame_capture.exe --headless --interp --rom-path roms --frames 4366 --input deps/kof98recomp/tests/start_fight.txt
+    Remove-Item Env:KOF_CAPTURE_STATE_DIR
+    python tools/pack_live.py local/live-capture roms local/live-pack --start 4350 --count 16
+    cmake -S . -B build-saturn -DKOF_SEQUENCE_DIR=E:/projetos/kof98-saturn/local/live-pack
+    cmake --build build-saturn --target kof_sequence_replay_disc -j 6
+    python scripts/kof_ymir.py --frames 2400 --out local/ymir/live
+
+This is a new trace, so the old KFR2 alone is insufficient to exercise the input decoder. The original 600-frame packs need not be regenerated. Target compilation, memory budget, cadence and pixel parity remain pending. The probe still labels >=600 total submissions as full_sequence_submitted; for this mode use live_frame_count and verified count instead (the trace loops after 16).

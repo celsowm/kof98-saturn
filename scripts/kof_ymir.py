@@ -17,7 +17,7 @@ SYMBOLS=("kof_sequence_stage","kof_sequence_frames","kof_sequence_clip",
          "kof_sequence_vram_requested","kof_sequence_cd_loads",
          "kof_sequence_upload_bytes","kof_sequence_upload_runs")
 STAGES={0:"not started",1:"CD initialization",2:"CD to cart",
-        3:"VDP1 atlas upload",4:"playback"}
+        3:"VDP1 atlas upload",4:"playback",5:"live LSPC decode"}
 
 def executable(name):
     return shutil.which(name)
@@ -104,7 +104,11 @@ def resolve_symbols(elf,build):
     missing=set(SYMBOLS)-found.keys()
     if missing:raise ValueError(f"missing ELF/map symbols: {sorted(missing)}")
     optional=('kof_sequence_fix_updates','kof_sequence_fix_swaps','kof_sequence_fix_errors',
-              'kof_sequence_stage_updates','kof_sequence_stage_swaps','kof_sequence_stage_max_updates')
+              'kof_sequence_stage_updates','kof_sequence_stage_swaps','kof_sequence_stage_max_updates',
+              'kof_sequence_live_verified','kof_sequence_live_hash_errors','kof_sequence_live_cache_hits',
+              'kof_sequence_live_cache_misses','kof_sequence_live_lut_hits','kof_sequence_live_lut_misses',
+              'kof_sequence_live_trace_fields','kof_sequence_live_lspc_fields','kof_sequence_live_draw_fields',
+              'kof_sequence_live_frame_count')
     return {k:found[k] for k in (*SYMBOLS,*optional) if k in found}
 
 def main():
@@ -142,7 +146,7 @@ def main():
         if a.pc:cmd+=["--profile-pc","pc.csv"]
         for key,address in addresses.items():
             cmd+=["--dump-mem",f"0x{address:08x}:4:{key}.bin"]
-        for count in (1,60,145,300,599,600,601,900,1200):
+        for count in (1,2,8,16,17,60,145,300,599,600,601,900,1200):
             cmd+=["--screenshot-when",f"0x{addresses['kof_sequence_frames']:08x}:{count}+2:submitted-{count:04d}.png"]
         for field in sorted({0,min(119,a.frames-1),a.frames-1}):
             cmd+=["--screenshot",f"{field}:field-{field:05d}.png"]

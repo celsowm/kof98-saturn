@@ -15,6 +15,7 @@
 typedef struct {uint32_t source_offset,bytes,crc,atlas_bytes,first,count;} seq_clip;
 typedef struct {uint32_t offset;uint16_t count,bg;} seq_frame;
 typedef struct {uint32_t offset,bytes;uint16_t count,bg;} seq_resident_frame;
+typedef struct {uint32_t offset,bytes;uint16_t sprites,fix,bg;uint32_t hash;} seq_live_frame;
 #include "sequence_manifest.h"
 static sat_cd_block_t block;
 static sat_cd_device_t device;
@@ -34,7 +35,9 @@ volatile uint32_t kof_sequence_stage,kof_sequence_frames,kof_sequence_clip,kof_s
 volatile uint32_t kof_sequence_vram_free,kof_sequence_vram_requested;
 static void check(int ok){if(!ok)sat_panic(SAT_ERR_VERIFY_FAILED,__FILE__,__LINE__);}
 volatile uint32_t kof_sequence_cd_loads,kof_sequence_upload_bytes,kof_sequence_upload_runs;
-#if defined(SEQ_RESIDENT)
+#if defined(SEQ_LIVE)
+#include "sequence_live.inc"
+#elif defined(SEQ_RESIDENT)
 #include "sequence_resident.inc"
 #else
 int main(void){
