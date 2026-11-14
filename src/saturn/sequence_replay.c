@@ -14,6 +14,7 @@
 #include "loading_screen.h"
 typedef struct {uint32_t source_offset,bytes,crc,atlas_bytes,first,count;} seq_clip;
 typedef struct {uint32_t offset;uint16_t count,bg;} seq_frame;
+typedef struct {uint32_t offset,bytes;uint16_t count,bg;} seq_resident_frame;
 #include "sequence_manifest.h"
 static sat_cd_block_t block;
 static sat_cd_device_t device;
@@ -32,6 +33,10 @@ static _Alignas(32) uint16_t commands[2048][8];
 volatile uint32_t kof_sequence_stage,kof_sequence_frames,kof_sequence_clip,kof_sequence_index,kof_sequence_commands;
 volatile uint32_t kof_sequence_vram_free,kof_sequence_vram_requested;
 static void check(int ok){if(!ok)sat_panic(SAT_ERR_VERIFY_FAILED,__FILE__,__LINE__);}
+volatile uint32_t kof_sequence_cd_loads,kof_sequence_upload_bytes,kof_sequence_upload_runs;
+#if defined(SEQ_RESIDENT)
+#include "sequence_resident.inc"
+#else
 int main(void){
     const sat_video_config_t cfg={320,224,SAT_VIDEO_NTSC,SAT_VIDEO_INTERLACE_NONE};
     kof_sequence_stage=1;
@@ -67,6 +72,7 @@ int main(void){
         check(c->atlas_bytes<=SEQ_MAX_ATLAS&&c->first+c->count<=sizeof seq_frames/sizeof seq_frames[0]);
         const kof_asset_desc desc={1,c->source_offset,c->bytes,c->crc};
         check(kof_asset_begin(&assets.store,&desc,1)==KOF_ASSET_OK);
+        ++kof_sequence_cd_loads;
         kof_asset_result r;
         do{
             r=kof_asset_step_cd(&assets.store,scratch,sizeof scratch);
@@ -85,6 +91,7 @@ int main(void){
             check(kof_asset_read(&assets.store,a,p,scratch,n)==KOF_ASSET_OK);
             /* SDK VRAM write fences previous VDP1 work before replacing atlas. */
             SAT_PANIC_IF_ERROR(sat_vdp1_vram_write(base+p,scratch,n));p+=n;
+            kof_sequence_upload_bytes+=n;++kof_sequence_upload_runs;
             kof_loading_update(&loading,p,c->atlas_bytes,0);
         }
         kof_sequence_stage=4;
@@ -132,3 +139,5 @@ int main(void){
       }
     }
 }
+
+#endif /* SEQ_RESIDENT */

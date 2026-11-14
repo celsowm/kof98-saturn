@@ -14,7 +14,8 @@ import time
 ROOT=Path(__file__).resolve().parents[1]
 SYMBOLS=("kof_sequence_stage","kof_sequence_frames","kof_sequence_clip",
          "kof_sequence_index","kof_sequence_commands","kof_sequence_vram_free",
-         "kof_sequence_vram_requested")
+         "kof_sequence_vram_requested","kof_sequence_cd_loads",
+         "kof_sequence_upload_bytes","kof_sequence_upload_runs")
 STAGES={0:"not started",1:"CD initialization",2:"CD to cart",
         3:"VDP1 atlas upload",4:"playback"}
 
@@ -139,7 +140,7 @@ def main():
         if a.pc:cmd+=["--profile-pc","pc.csv"]
         for key,address in addresses.items():
             cmd+=["--dump-mem",f"0x{address:08x}:4:{key}.bin"]
-        for count in (1,60,145,300,600):
+        for count in (1,60,145,300,599,600,601,900,1200):
             cmd+=["--screenshot-when",f"0x{addresses['kof_sequence_frames']:08x}:{count}+2:submitted-{count:04d}.png"]
         for field in sorted({0,min(119,a.frames-1),a.frames-1}):
             cmd+=["--screenshot",f"{field}:field-{field:05d}.png"]
