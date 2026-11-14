@@ -30,3 +30,5 @@ Experimental [exact suffix sharing](docs/X2_SUFFIX_DEDUP.md) is available with `
 An independent [bounded CFG sharing candidate](docs/X2_CFG_DEDUP.md) is available with `-DKOF_DEDUP_CFG=ON`. Select one dedup strategy per build; both are experimental.
 
 Experimental [local dead flag elimination](docs/X2_FLAG_LIVENESS.md): `-DKOF_OPT_FLAGS=ON`, default OFF. Measure separately from CFG sharing.
+
+Experimental [fixed counter batching](docs/X2_CYCLE_BATCH.md): `-DKOF_OPT_CYCLES=ON`, default OFF. Measure separately from flags and CFG sharing.

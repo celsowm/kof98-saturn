@@ -9,6 +9,7 @@ from pathlib import Path
 from pack_dispatch import parse
 from cfg_merge import merge_cfg
 from flag_liveness import optimize as optimize_flags
+from cycle_batch import optimize as optimize_cycles
 
 ROUTINE = re.compile(r'^/\* routine \$([0-9A-F]+): (\d+) instructions \*/\nvoid (r_[0-9A-F]+)\(void\) \{\n    switch \(CPU.pc\) \{\n(.*?)^    default: ng_bad_dispatch\(CPU.pc\); return;\n    \}\n(.*?)^\}\n', re.M | re.S)
 CASE = re.compile(r'    case 0x([0-9A-F]+)u: goto L_([0-9A-F]+);\n')
@@ -109,7 +110,7 @@ def render(r):
             '    default: ng_bad_dispatch(CPU.pc); return;\n    }\n'+''.join(r.blocks)+'}\n')
 
 
-def transform(src, dst, parts=16, mode='suffix', flags=False):
+def transform(src, dst, parts=16, mode='suffix', flags=False, cycles=False):
     if src.resolve()==dst.resolve():
         raise ValueError('source and destination must differ')
     prefixes=[]; routines=[]
@@ -126,6 +127,8 @@ def transform(src, dst, parts=16, mode='suffix', flags=False):
         raise ValueError('unknown dedup mode')
     if flags and mode=='cfg':
         raise ValueError('flags and CFG sharing must be measured separately')
+    if cycles and (flags or mode=='cfg'):
+        raise ValueError('cycle batching must be measured separately from flags and CFG')
     aliases=merge_cfg(routines) if mode=='cfg' else merge(routines) if mode=='suffix' else {r.name:r.name for r in routines}
     kept=[r for r in routines if aliases[r.name]==r.name]
     flag_writes_removed=0
@@ -133,6 +136,12 @@ def transform(src, dst, parts=16, mode='suffix', flags=False):
         for r in kept:
             r.blocks, removed=optimize_flags(r.blocks)
             flag_writes_removed+=removed
+    cycle_batches=counter_pairs_removed=0
+    if cycles:
+        for r in kept:
+            r.blocks, batches, removed=optimize_cycles(r.blocks,r.cases|r.extra)
+            cycle_batches+=batches
+            counter_pairs_removed+=removed
     # Switch ownership must be unchanged, even when an entry points into a tail.
     for key,fn in entries:
         root=by_name[aliases[fn]]
@@ -147,7 +156,7 @@ def transform(src, dst, parts=16, mode='suffix', flags=False):
     table+='const ng_func_entry_t ng_recomp_table[] = {\n'+''.join(f'    {{0x{key:06X}u, {aliases[fn]}}},\n' for key,fn in entries)+'};\n'
     table+=f'const size_t ng_recomp_count = {len(entries)};\n'
     (dst/'recomp_table.c').write_text(table,encoding='utf-8')
-    report={'routines_before':len(routines),'routines_after':len(kept),'mode':mode,'flag_producers_removed':flag_writes_removed,'instruction_labels_before':labels_before,'instruction_labels_after':sum(len(r.blocks) for r in kept),'dispatch_entries':len(entries)}
+    report={'routines_before':len(routines),'routines_after':len(kept),'mode':mode,'flag_producers_removed':flag_writes_removed,'cycle_batches':cycle_batches,'counter_update_pairs_removed':counter_pairs_removed,'instruction_labels_before':labels_before,'instruction_labels_after':sum(len(r.blocks) for r in kept),'dispatch_entries':len(entries)}
     (dst/'dedup_report.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
     return report
 
@@ -157,10 +166,11 @@ def main():
     p.add_argument('source',type=Path); p.add_argument('output',type=Path); p.add_argument('--parts',type=int,default=16)
     p.add_argument('--mode',choices=('none','suffix','cfg'),default='suffix')
     p.add_argument('--flags',action='store_true')
+    p.add_argument('--cycles',action='store_true')
     a=p.parse_args()
     try:
         if not 1<=a.parts<=100: raise ValueError('invalid part count')
-        print(json.dumps(transform(a.source,a.output,a.parts,a.mode,a.flags),indent=2))
+        print(json.dumps(transform(a.source,a.output,a.parts,a.mode,a.flags,a.cycles),indent=2))
     except (OSError,ValueError) as exc: p.error(str(exc))
 
 if __name__=='__main__': main()
