@@ -1,5 +1,5 @@
 #include "kof98/strip.h"
-#include <string.h>
+#include "bytes.h"
 static unsigned pop(uint16_t m){unsigned n=0;while(m){m=(uint16_t)(m&(m-1u));++n;}return n;}
 int kof_strip_begin(kof_strip_builder *b,kof_strip *s,uint16_t cap){
     if(!b||!s||!cap)return -1;
@@ -17,7 +17,7 @@ int kof_strip_push(kof_strip_builder *b,const kof_line_ir *ir,const uint16_t *pa
         previous=p->slot;
         const uint16_t *colors=pal+16u*p->palette;
         uint16_t tail=b->tail[p->slot];kof_strip *s=tail==KOF_STRIP_END?NULL:&b->strips[tail];
-        if(!s||s->height==16u||s->y+s->height!=b->line||s->tile!=p->tile||s->x!=p->x||s->mask!=p->mask||s->flip!=p->flip||memcmp(s->colors,colors,32)){
+        if(!s||s->height==16u||s->y+s->height!=b->line||s->tile!=p->tile||s->x!=p->x||s->mask!=p->mask||s->flip!=p->flip||kof_memcmp(s->colors,colors,32)){
             if(b->count==b->capacity)goto fail;
             uint16_t idx=b->count++;
             if(s)s->next=idx;else b->head[p->slot]=idx;

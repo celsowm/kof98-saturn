@@ -63,6 +63,11 @@ if(KOF_BUILD_SATURN_ASSETS)
     message(FATAL_ERROR "Use the installed LibSaturn SH-2 toolchain")
   endif()
   find_package(LibSaturn CONFIG REQUIRED)
+  # Static libraries do not inherit usage requirements from their consumers.
+  # Every target translation unit must use the same freestanding SH-2 ABI.
+  foreach(core_target IN ITEMS kof_dispatch kof_asset_store kof_lspc_ir)
+    target_link_libraries(${core_target} PUBLIC LibSaturn::Core)
+  endforeach()
   add_library(kof_saturn_assets STATIC src/saturn/asset_store_sdk.c src/saturn/tile_cache_sdk.c src/saturn/strip_renderer.c)
   target_link_libraries(kof_saturn_assets PUBLIC kof_asset_store kof_lspc_ir LibSaturn::Saturn)
 endif()

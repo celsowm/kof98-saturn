@@ -1,5 +1,5 @@
 #include "kof98/asset_store.h"
-#include <string.h>
+#include "bytes.h"
 static int published(const kof_asset_store *s) { return s->state==KOF_STORE_READY || s->state==KOF_STORE_COMBAT; }
 static uint32_t crc_update(uint32_t crc,const uint8_t *p,uint32_t n) {
     while(n--) { crc^=*p++; for(unsigned i=0;i<8;++i) crc=(crc>>1)^(0xedb88320u & (0u-(crc&1u))); }

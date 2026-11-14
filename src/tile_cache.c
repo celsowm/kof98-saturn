@@ -1,5 +1,5 @@
 #include "kof98/tile_cache.h"
-#include <string.h>
+#include "bytes.h"
 static uint32_t be32(const uint8_t *p){return (uint32_t)p[0]<<24|(uint32_t)p[1]<<16|(uint32_t)p[2]<<8|p[3];}
 static int live(const kof_tile_view *v){return v && v->store && v->count && kof_asset_read(v->store,v->index,0,NULL,0)==KOF_ASSET_OK && kof_asset_read(v->store,v->pixels,0,NULL,0)==KOF_ASSET_OK;}
 kof_asset_result kof_tile_view_open(kof_tile_view *out,kof_asset_store *s){
@@ -44,7 +44,7 @@ static int tile_slot(kof_tile_cache *c,uint32_t id,unsigned set){
 }
 static int lut_slot(kof_tile_cache *c,const uint16_t *p,unsigned set){
     unsigned start=set*4u;
-    for(unsigned i=0;i<4;++i)if(c->luts[start+i].valid&&!memcmp(c->luts[start+i].colors,p,32))return (int)(start+i);
+    for(unsigned i=0;i<4;++i)if(c->luts[start+i].valid&&!kof_memcmp(c->luts[start+i].colors,p,32))return (int)(start+i);
     for(unsigned i=0;i<4;++i)if(!c->luts[start+i].valid&&!c->luts[start+i].pinned)return (int)(start+i);
     for(unsigned i=0;i<4;++i){unsigned k=(c->lut_next[set]+i)&3u;if(!c->luts[start+k].pinned){c->lut_next[set]=(uint8_t)((k+1u)&3u);return (int)(start+k);}}
     return -1;
@@ -59,7 +59,7 @@ kof_asset_result kof_tile_cache_get(kof_tile_cache *c,uint32_t id,const uint16_t
     kof_tile_slot *ts=&c->tiles[t];kof_lut_slot *ls=&c->luts[l];
     uint32_t to=(uint32_t)t*128u,po=KOF_TILE_SLOTS*128u+(uint32_t)l*32u;
     if(!ts->valid||ts->id!=id){uint8_t pixels[128];++c->tile_misses;kof_asset_result r=kof_tile_read(&c->view,id,pixels);if(r!=KOF_ASSET_OK){if(r==KOF_ASSET_MISSING)++c->missing;return r;}ts->valid=0;if(c->write(c->context,to,pixels,128))return KOF_ASSET_IO;ts->id=id;ts->valid=1;}else ++c->tile_hits;
-    if(!ls->valid||memcmp(ls->colors,p,32)){++c->lut_misses;ls->valid=0;if(c->write(c->context,po,p,32))return KOF_ASSET_IO;memcpy(ls->colors,p,32);ls->valid=1;}else ++c->lut_hits;
+    if(!ls->valid||kof_memcmp(ls->colors,p,32)){++c->lut_misses;ls->valid=0;if(c->write(c->context,po,p,32))return KOF_ASSET_IO;memcpy(ls->colors,p,32);ls->valid=1;}else ++c->lut_hits;
     ts->pinned=ls->pinned=1;out->pixels_offset=to;out->lut_offset=po;return KOF_ASSET_OK;
 }
 kof_asset_result kof_tile_cache_palette(kof_tile_cache *c,const uint16_t p[16],uint32_t *out){
@@ -70,6 +70,6 @@ kof_asset_result kof_tile_cache_palette(kof_tile_cache *c,const uint16_t p[16],u
     int l=lut_slot(c,p,palette_hash(p)&(KOF_LUT_SLOTS/4u-1u));
     if(l<0){++c->blocked;return KOF_ASSET_FULL;}
     kof_lut_slot *ls=&c->luts[l];uint32_t po=KOF_TILE_SLOTS*128u+(uint32_t)l*32u;
-    if(!ls->valid||memcmp(ls->colors,p,32)){++c->lut_misses;ls->valid=0;if(c->write(c->context,po,p,32))return KOF_ASSET_IO;memcpy(ls->colors,p,32);ls->valid=1;}else ++c->lut_hits;
+    if(!ls->valid||kof_memcmp(ls->colors,p,32)){++c->lut_misses;ls->valid=0;if(c->write(c->context,po,p,32))return KOF_ASSET_IO;memcpy(ls->colors,p,32);ls->valid=1;}else ++c->lut_hits;
     ls->pinned=1;*out=po;return KOF_ASSET_OK;
 }
