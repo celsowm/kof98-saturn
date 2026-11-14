@@ -17,10 +17,10 @@ ctest --test-dir build --output-on-failure
 python3 tools/dispatch_budget.py
 ```
 
-The sparse and paged dispatchers are standalone prototypes, not yet wired into neogeorecomp. See [X0 dispatch experiments](docs/X0_DISPATCH_REPORT.md) for synthetic host checks and target caveats. No ROMs are necessary for the synthetic tests. Build the eventual game locally with legally obtained AES kof98h and Neo Geo BIOS dumps. No SNK ROMs, game assets, generated game code, traces, BIOS or binaries are distributed here.
+The sparse and paged dispatchers have ROM-free tests and an optional source-level desktop integration. See [X0 dispatch experiments](docs/X0_DISPATCH_REPORT.md) for synthetic host checks and target caveats. No ROMs are necessary for the synthetic tests. Build the eventual game locally with legally obtained AES kof98h and Neo Geo BIOS dumps. No SNK ROMs, game assets, generated game code, traces, BIOS or binaries are distributed here.
 
 ## Credits
 
 Danilo P. da Silva (KOF98 Recomp and toolkit improvements), sp00nznet (neogeorecomp), LibSaturn contributors, and SNK (original game and intellectual property). Unofficial fan research; not affiliated with SNK or Sega.
 
-The [offline dispatch packer](docs/X1_GENERATED_DISPATCH.md) converts locally generated upstream tables to immutable paged C arrays. Runtime wiring remains pending.
+The [offline dispatch packer](docs/X1_GENERATED_DISPATCH.md) converts locally generated upstream tables to immutable paged C arrays. See the [host paged oracle build](docs/HOST_PAGED_ORACLE.md) for the new local integration; real ROM and Saturn verification remain pending.
