@@ -13,6 +13,9 @@ static uint32_t take16(const uint8_t **p,const uint8_t *end) {
 static void read_asset(kof_asset_handle a,uint32_t off,void *dst,uint32_t n) {
     check(kof_asset_read(&assets.store,a,off,dst,n)==KOF_ASSET_OK);
 }
+#ifdef SEQ_FIX_VDP2
+#include "sequence_fix.inc"
+#endif
 static void upload_slots(kof_asset_handle a,uint32_t base,const uint8_t **p,const uint8_t *end) {
     unsigned count=take16(p,end);
     check(count<=SEQ_PAT_SLOTS+SEQ_LUT_SLOTS && (size_t)(end-*p)>=count*4u);
@@ -98,6 +101,9 @@ int main(void) {
     kof_asset_handle a;
     check(kof_asset_find(&assets.store,1,&a)==KOF_ASSET_OK);
     check(kof_asset_enter_combat(&assets.store)==KOF_ASSET_OK);
+#ifdef SEQ_FIX_VDP2
+    fix_init(a);
+#endif
     sat_sprite_frame_t prefixes[4];
     for(unsigned flip=0;flip<4;++flip)
         SAT_PANIC_IF_ERROR(sat_sprite_frame_init_raw(&prefixes[flip],
@@ -113,6 +119,9 @@ int main(void) {
             const uint8_t *p=scratch,*end=scratch+f->bytes;
             kof_sequence_stage=3;
             upload_slots(a,base,&p,end);
+#ifdef SEQ_FIX_VDP2
+            fix_prepare(&p,end);
+#endif
             decode(p,end,f->count,old_count,dst,old);
             kof_sequence_stage=4;
             SAT_PANIC_IF_ERROR(sat_set_clear_color(f->bg));
@@ -132,8 +141,14 @@ int main(void) {
             sat_sprite_batch_stats_t stats;
             SAT_PANIC_IF_ERROR(sat_sprite_batch_end(&win,&stats));
             check(stats.submitted==f->count&&!stats.culled&&!stats.dropped&&!stats.invalid);
+#ifdef SEQ_FIX_VDP2
+            fix_pending_serial=sat_vdp1_list_serial()+1u;
+#endif
             SAT_PANIC_IF_ERROR(sat_end_frame());
             SAT_PANIC_IF_ERROR(sat_wait_vblank());
+#ifdef SEQ_FIX_VDP2
+            check(!fix_pending_serial && !fix_pending_count && !kof_sequence_fix_errors);
+#endif
             kof_sequence_index=i;kof_sequence_commands=f->count;++kof_sequence_frames;
             uint16_t (*swap)[8]=old;old=dst;dst=swap;old_count=f->count;
         }

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Repack a validated clip sequence into a single resident replay with a persistent VDP1 atlas."""
 import argparse
+import csv
+from pack_fix import Fix
 from collections import OrderedDict
 from difflib import SequenceMatcher
 import json
@@ -102,7 +104,7 @@ def source_rows(directory):
         next_frame+=count
     if next_frame!=len(frames):raise ValueError("source frame coverage")
 
-def build(source,out):
+def build(source,out,fix_vdp2=False):
     if source.resolve()==out.resolve():raise ValueError("separate output directory required")
     out.mkdir(parents=True,exist_ok=True)
     for name in ("SEQUENCE.BIN","sequence_manifest.h","sequence_report.json"):
@@ -110,12 +112,24 @@ def build(source,out):
     pats={};luts={};pattern_data=[];lut_data=[]
     pc=Cache(PAT_SLOTS);lc=Cache(LUT_SLOTS)
     old=[];packets=bytearray();frames=[];uploads=[];delta_bytes=0
+    fix=Fix() if fix_vdp2 else None
+    fix_counts=[];removed=0;peak_removed=0
+    if fix:
+        with (source/'frames.csv').open(newline='') as f:
+            fix_counts=[(int(r['commands']),int(r['fix_commands'])) for r in csv.DictReader(f)]
     def intern(table,items,data):
         if data not in table:
             if len(items)>=65536:raise ValueError("dictionary exceeds 16-bit indices")
             table[data]=len(items);items.append(data)
         return table[data]
     for i,(bg,draw) in enumerate(source_rows(source)):
+        fix_packet=b""
+        if fix:
+            if i>=len(fix_counts):raise ValueError("missing FIX metadata")
+            total,n=fix_counts[i]
+            if total!=len(draw) or not 0<=n<total:raise ValueError("invalid FIX suffix")
+            fix_packet=fix.encode(draw[total-n:])
+            draw=draw[:total-n];removed+=n;peak_removed=max(peak_removed,n)
         ids=[(intern(pats,pattern_data,p.ljust(128,b"\0")),intern(luts,lut_data,l)) for x,y,w,h,f,p,l in draw]
         updates_p=pc.assign([p for p,l in ids]);updates_l=lc.assign([l for p,l in ids])
         updates=sorted(updates_p)+[(0x8000|slot,key) for slot,key in sorted(updates_l)]
@@ -127,7 +141,7 @@ def build(source,out):
             if pattern_data[pc.data[slot]][:len(p)]!=p or lut_data[lc.data[ls]]!=l:raise ValueError("cache verification failed")
         commands=delta(old,new)
         if decode_delta(commands,old,len(new))!=new:raise ValueError("delta verification failed")
-        packet=U16.pack(len(updates))+b"".join(UPDATE.pack(*u) for u in updates)+commands
+        packet=U16.pack(len(updates))+b"".join(UPDATE.pack(*u) for u in updates)+fix_packet+commands
         if len(packet)>128*1024:raise ValueError("packet exceeds WRAM scratch")
         frames.append((len(packets),len(packet),len(new),bg))
         packets+=packet;old=new
@@ -135,7 +149,10 @@ def build(source,out):
         if i%60==0:print(f"resident frame {i+1}: {len(updates)} uploads, {len(packet)} packet bytes",flush=True)
     if not frames:raise ValueError("empty replay")
     patterns=b"".join(pattern_data);palettes=b"".join(lut_data)
-    prefix=patterns+palettes;payload=prefix+packets
+    if fix and len(frames)!=len(fix_counts):raise ValueError("FIX metadata coverage")
+    fix_tiles=b"".join(fix.tiles) if fix else b""
+    fix_palettes=b"".join(fix.palettes) if fix else b""
+    prefix=patterns+palettes+fix_tiles+fix_palettes;payload=prefix+packets
     report=dict(frames=len(frames),resident=True,disc_payload_bytes=len(payload),
                 cart_budget=CART,atlas_bytes=ATLAS,pattern_slots=PAT_SLOTS,lut_slots=LUT_SLOTS,
                 unique_padded_patterns=len(pattern_data),unique_palettes=len(lut_data),
@@ -144,6 +161,11 @@ def build(source,out):
                 mean_upload_bytes_after_first=sum(uploads[1:])/max(1,len(uploads)-1),
                 peak_upload_bytes=max(uploads),max_steady_upload_bytes=max(uploads[1:],default=0),
                 source_command_resource_mismatches=0)
+    if fix:
+        report.update(fix_vdp2=True,fix_tiles=len(fix.tiles),fix_palettes=len(fix.palettes),
+                      mean_removed_commands=removed/len(frames),peak_removed_commands=peak_removed,
+                      fix_map_updates=fix.total_updates,max_fix_map_updates=fix.max_updates,
+                      fix_tile_bytes=len(fix_tiles),fix_palette_bytes=len(fix_palettes))
     (out/"sequence_report.json").write_text(json.dumps(report,indent=2)+"\n")
     print(json.dumps(report,indent=2))
     if len(payload)>CART:raise ValueError("resident pack exceeds 4 MiB; no buildable output")
@@ -153,6 +175,11 @@ def build(source,out):
                         SEQ_PATTERN_COUNT=len(pattern_data),SEQ_PALETTE_COUNT=len(lut_data),
                         SEQ_PALETTE_OFFSET=len(patterns),SEQ_PACKET_OFFSET=len(prefix)).items():
         header+=f"#define {key} {val}u\n"
+    if fix:
+        header+="#define SEQ_FIX_VDP2 1\n"
+        for key,val in dict(SEQ_FIX_TILE_OFFSET=len(patterns)+len(palettes),
+                            SEQ_FIX_TILE_BYTES=len(fix_tiles),SEQ_FIX_LUT_OFFSET=len(patterns)+len(palettes)+len(fix_tiles),
+                            SEQ_FIX_LUT_BYTES=len(fix_palettes)).items():header+=f"#define {key} {val}u\n"
     header+="static const seq_resident_frame seq_resident_frames[] = {\n"
     for off,size,count,bg in frames:header+=f"  {{{len(prefix)+off}u,{size}u,{count}u,{bg}u}},\n"
     header+="};\n#endif\n"
@@ -162,6 +189,7 @@ def build(source,out):
 if __name__=="__main__":
     a=argparse.ArgumentParser(description=__doc__)
     a.add_argument("source",type=Path);a.add_argument("output",type=Path)
+    a.add_argument("--fix-vdp2",action="store_true")
     p=a.parse_args()
-    try:build(p.source,p.output)
+    try:build(p.source,p.output,p.fix_vdp2)
     except (ValueError,OSError,struct.error) as e:a.error(str(e))
