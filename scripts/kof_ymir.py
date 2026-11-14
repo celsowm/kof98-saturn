@@ -25,20 +25,43 @@ def run_checked(cmd,**kw):
     print("+",subprocess.list2cmdline([str(x) for x in cmd]),flush=True)
     subprocess.run([str(x) for x in cmd],check=True,**kw)
 
+REQUIRED_PROBE_OPTIONS=("--sh2-cache","--video-observations","--profile-instructions",
+                        "--profile-transfers","--ram-cart","--dump-mem","--screenshot-when")
+
+def missing_probe_options(probe):
+    # Older probes exit 2 for --help but print their supported CLI usage.
+    r=subprocess.run([str(probe),"--help"],capture_output=True,text=True,
+                     errors="replace",timeout=15)
+    usage=r.stdout+r.stderr
+    return [opt for opt in REQUIRED_PROBE_OPTIONS if opt not in usage]
+
+def verify_probe(probe):
+    if not probe.is_file():raise ValueError(f"probe missing: {probe}")
+    missing=missing_probe_options(probe)
+    if missing:raise ValueError(f"outdated probe {probe}: missing {', '.join(missing)}")
+    return probe
+
 def resolve_probe(a,sdk):
     if a.probe:
-        p=a.probe.resolve()
-        if not p.is_file():raise ValueError(f"probe missing: {p}")
-        return p
+        return verify_probe(a.probe.resolve())
     if os.getenv("LIBSATURN_YMIR_PROBE"):
-        p=Path(os.environ["LIBSATURN_YMIR_PROBE"]).resolve()
-        if not p.is_file():raise ValueError(f"probe missing: {p}")
-        return p
+        return verify_probe(Path(os.environ["LIBSATURN_YMIR_PROBE"]).resolve())
     suffix=".exe" if os.name=="nt" else ""
     dest=ROOT/"build-ymir"
     for folder in (dest,sdk/"harness/build",sdk/"harness/build-macos"):
         p=folder/("probe"+suffix)
-        if p.is_file():return p
+        if p.is_file():
+            missing=missing_probe_options(p)
+            if not missing:
+                print(f"Using compatible Ymir probe: {p}",flush=True)
+                return p
+            print(f"Skipping outdated probe {p}: {', '.join(missing)}",flush=True)
+    source=sdk/"harness/src/probe_main.cpp"
+    if not source.is_file():raise ValueError(f"missing harness source: {source}")
+    missing=[opt for opt in REQUIRED_PROBE_OPTIONS if opt not in source.read_text(encoding="utf-8")]
+    if missing:
+        raise ValueError(f"LibSaturn harness source is outdated ({', '.join(missing)}). "
+                         f"Update {sdk} with git pull --ff-only, preserving local changes.")
     cmd=["cmake","-S",sdk/"harness","-B",dest,"-G","Ninja","-DCMAKE_BUILD_TYPE=Release"]
     env=os.environ.copy()
     if os.name=="nt":
@@ -46,13 +69,17 @@ def resolve_probe(a,sdk):
         native=msys/"ucrt64/bin"
         cxx=native/"g++.exe"
         if not cxx.is_file():raise ValueError("UCRT64 g++ missing; use --probe")
-        env["PATH"]=os.pathsep.join(map(str,[native,msys/"usr/bin",env.get("PATH","")]))
+        git=Path(os.environ.get("ProgramFiles",r"C:\Program Files"))/"Git/cmd"
+        paths=[native,msys/"usr/bin"]
+        if (git/"git.exe").is_file():
+            paths.insert(0,git)
+            cmd.append("-DGIT_EXECUTABLE="+str(git/"git.exe").replace("\\","/"))
+        env["PATH"]=os.pathsep.join(map(str,[*paths,env.get("PATH","")]))
         cmd.append("-DCMAKE_CXX_COMPILER="+str(cxx).replace("\\","/"))
+    print(f"Building compatible native Ymir probe in {dest}",flush=True)
     run_checked(cmd,env=env)
     run_checked(["cmake","--build",dest,"--target","probe","-j",str(a.jobs)],env=env)
-    p=dest/("probe"+suffix)
-    if not p.is_file():raise ValueError(f"probe build did not produce {p}")
-    return p
+    return verify_probe(dest/("probe"+suffix))
 
 def resolve_symbols(elf,build):
     nm=executable("sh2eb-elf-nm")
