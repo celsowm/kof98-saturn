@@ -31,20 +31,20 @@ int kof_strip_push(kof_strip_builder *b,const kof_line_ir *ir,const uint16_t *pa
 fail:b->failed=1;return -1;
 }
 int kof_strip_complete(const kof_strip_builder *b){return b&&b->strips&&!b->failed&&b->line==224u;}
-static int valid(const kof_strip *s){
+int kof_strip_valid(const kof_strip *s){
     if(!s||!s->height||s->height>16u||!s->width||s->width!=pop(s->mask)||s->flip>1u||s->x+s->width>320u||s->y+s->height>224u)return 0;
     for(unsigned i=0;i<s->height;++i)if(s->rows[i]>=16u)return 0;
     return 1;
 }
 int kof_strip_native(const kof_strip *s,uint8_t *h,uint8_t *v){
-    if(!h||!v||!valid(s)||s->mask!=0xffffu||s->height!=16u)return 0;
+    if(!h||!v||!kof_strip_valid(s)||s->mask!=0xffffu||s->height!=16u)return 0;
     int forward=1,backward=1;
     for(unsigned i=0;i<16u;++i){forward&=s->rows[i]==i;backward&=s->rows[i]==15u-i;}
     if(!forward&&!backward)return 0;
     *h=s->flip;*v=(uint8_t)backward;return 1;
 }
 int kof_strip_pixels(const kof_strip *s,const uint8_t tile[128],uint8_t out[128],uint16_t *width){
-    if(!valid(s)||!tile||!out||!width)return -1;
+    if(!kof_strip_valid(s)||!tile||!out||!width)return -1;
     unsigned w=(s->width+7u)&~7u;memset(out,0,128);
     for(unsigned y=0;y<s->height;++y){unsigned x=0;for(unsigned i=0;i<16u;++i)if(s->mask&(1u<<i)){
         unsigned col=s->flip?15u-i:i;unsigned pen=(tile[s->rows[y]*8u+col/2u]>>(col%2u?0:4))&15u;

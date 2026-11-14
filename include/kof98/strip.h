@@ -24,6 +24,7 @@ int kof_strip_push(kof_strip_builder*,const kof_line_ir*,const uint16_t*,uint32_
 int kof_strip_complete(const kof_strip_builder*);
 /* Iterate head[0..380], then next: preserves slot painter order. */
 /* 1: original 16x16 pattern reusable, flips returned separately. */
+int kof_strip_valid(const kof_strip*);
 int kof_strip_native(const kof_strip*,uint8_t *flip_h,uint8_t *flip_v);
 /* Pack exact sampled pixels; width padded to 8/16 with transparent pen 0. */
 int kof_strip_pixels(const kof_strip*,const uint8_t tile[128],uint8_t out[128],uint16_t *width);

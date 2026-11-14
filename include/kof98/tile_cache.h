@@ -30,5 +30,6 @@ kof_asset_result kof_tile_cache_begin(kof_tile_cache*,const kof_tile_view*);
 kof_asset_result kof_tile_cache_end(kof_tile_cache*);
 /* LUT words are native-endian RGB555/MSB; pen zero must be zero. On any
  * failure the caller must discard the prepared list, not omit a sprite. */
+kof_asset_result kof_tile_cache_palette(kof_tile_cache*,const uint16_t[16],uint32_t*);
 kof_asset_result kof_tile_cache_get(kof_tile_cache*,uint32_t id,const uint16_t colors[16],kof_tile_binding*);
 #endif
