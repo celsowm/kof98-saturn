@@ -26,3 +26,5 @@ Danilo P. da Silva (KOF98 Recomp and toolkit improvements), sp00nznet (neogeorec
 The [offline dispatch packer](docs/X1_GENERATED_DISPATCH.md) converts locally generated upstream tables to immutable paged C arrays. See the [host paged oracle build](docs/HOST_PAGED_ORACLE.md) for the new local integration; real ROM and Saturn verification remain pending.
 
 Experimental [exact suffix sharing](docs/X2_SUFFIX_DEDUP.md) is available with `-DKOF_DEDUP_SUFFIX=ON` in a separate local host build. It is off by default until real-game parity and SH-2 size/timing are measured.
+
+An independent [bounded CFG sharing candidate](docs/X2_CFG_DEDUP.md) is available with `-DKOF_DEDUP_CFG=ON`. Select one dedup strategy per build; both are experimental.
