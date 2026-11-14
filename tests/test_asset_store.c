@@ -4,8 +4,9 @@
 #define CHECK(x) do { if(!(x)) { fprintf(stderr,"line %d: %s\n",__LINE__,#x); return 1; } } while(0)
 #define BANK (KOF_CART_BYTES/2u)
 static uint8_t bank[2][BANK], data[KOF_CART_BYTES], scratch[KOF_ASSET_CHUNK_MAX];
-static unsigned source_calls, fail_source, fail_write;
-static int source(void *ctx,uint32_t off,void *dst,uint32_t n){(void)ctx;++source_calls;if(fail_source)return -1;memcpy(dst,data+off,n);return 0;}
+static unsigned source_calls, fail_source, fail_write, check_cd, bad_cd;
+static uint32_t source_end;
+static int source(void *ctx,uint32_t off,void *dst,uint32_t n){(void)ctx;++source_calls;if(check_cd && ((off%2048u && n>2048u-off%2048u) || (off+n<source_end && (off+n)%2048u)))++bad_cd;if(fail_source)return -1;memcpy(dst,data+off,n);return 0;}
 static int read_cart(void *ctx,uint32_t off,void *dst,uint32_t n){(void)ctx;uint8_t *p=dst;while(n--){*p++=bank[off/BANK][off%BANK];++off;}return 0;}
 static int write_cart(void *ctx,uint32_t off,const void *src,uint32_t n){(void)ctx;if(fail_write)return -1;const uint8_t *p=src;while(n--){bank[off/BANK][off%BANK]=*p++;++off;}return 0;}
 static uint32_t crc(const uint8_t *p,uint32_t n){uint32_t c=~0u;while(n--){c^=*p++;for(unsigned i=0;i<8;i++)c=(c>>1)^(0xedb88320u&(0u-(c&1u)));}return ~c;}
@@ -30,6 +31,16 @@ int main(void){
  CHECK(kof_asset_begin(&s,d+1,1)==KOF_ASSET_OK); CHECK(kof_asset_abort(&s)==KOF_ASSET_OK); CHECK(kof_asset_find(&s,2,&h)==KOF_ASSET_MISSING);
  CHECK(kof_asset_begin(&s,d+1,1)==KOF_ASSET_OK); CHECK(finish(&s)==KOF_ASSET_OK); CHECK(kof_asset_find(&s,2,&h)==KOF_ASSET_OK && h.generation!=old.generation);
  CHECK(kof_asset_read(&s,h,0,out,64)==KOF_ASSET_OK && !memcmp(out,data+BANK-32,64));
+ /* Unaligned disc extent: exactly one head, two large batches, one tail. */
+ const uint32_t off=32u, length=2u*128u*1024u+2048u;
+ kof_asset_desc cd={3,off,length,crc(data+off,length)};
+ CHECK(kof_asset_begin(&s,&cd,1)==KOF_ASSET_OK);
+ CHECK(kof_asset_step_cd(&s,scratch,2049)==KOF_ASSET_INVALID);
+ source_end=off+length;check_cd=1;calls=source_calls;
+ kof_asset_result r; do{r=kof_asset_step_cd(&s,scratch,sizeof scratch);}while(r==KOF_ASSET_PENDING);
+ check_cd=0;CHECK(r==KOF_ASSET_OK && bad_cd==0 && source_calls-calls==4);
+ CHECK(kof_asset_find(&s,3,&h)==KOF_ASSET_OK);
+ CHECK(kof_asset_read(&s,h,length-64,out,64)==KOF_ASSET_OK && !memcmp(out,data+off+length-64,64));
  s.generation=UINT32_MAX; CHECK(kof_asset_begin(&s,d+1,1)==KOF_ASSET_FULL);
  printf("asset store: cross-bank, lifecycle, combat lock, bounds, rollback, CRC and retries PASS; metadata %zu bytes\n",sizeof s);return 0;
 }

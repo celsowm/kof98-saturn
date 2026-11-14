@@ -4,7 +4,7 @@
 #include <stdint.h>
 #define KOF_CART_BYTES (4u*1024u*1024u)
 #define KOF_ASSET_MAX 64u
-#define KOF_ASSET_CHUNK_MAX 8192u
+#define KOF_ASSET_CHUNK_MAX (128u*1024u)
 /* All callbacks are synchronous, exact-length, non-reentrant; 0 = success. */
 typedef int (*kof_asset_read_fn)(void*,uint32_t,void*,uint32_t);
 typedef int (*kof_asset_write_fn)(void*,uint32_t,const void*,uint32_t);
@@ -27,6 +27,10 @@ kof_asset_result kof_asset_init(kof_asset_store*, uint32_t capacity, uint32_t so
  * A failed transfer publishes NOTHING. Retrying reloads the entire phase. */
 kof_asset_result kof_asset_begin(kof_asset_store*,const kof_asset_desc*,uint32_t);
 kof_asset_result kof_asset_step(kof_asset_store*,void* scratch,uint32_t bytes);
+/* CD-oriented variant: split a partial leading sector into its own read,
+ * then issue aligned whole-sector batches and one final short tail.
+ * Scratch must be at least bytes long; bytes must be a multiple of 2048. */
+kof_asset_result kof_asset_step_cd(kof_asset_store*,void* scratch,uint32_t bytes);
 kof_asset_result kof_asset_abort(kof_asset_store*);
 kof_asset_result kof_asset_enter_combat(kof_asset_store*);
 /* Caller must drain VDP1/DMA/slave consumers before ending combat. */

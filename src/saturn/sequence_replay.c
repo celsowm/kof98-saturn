@@ -13,7 +13,14 @@ static sat_cd_device_t device;
 static sat_cdfs_volume_t volume;
 static kof_saturn_assets assets;
 static kof_loading loading;
-static _Alignas(32) uint8_t scratch[8192];
+#ifndef KOF_SEQUENCE_LOAD_CHUNK_BYTES
+#define KOF_SEQUENCE_LOAD_CHUNK_BYTES 131072u
+#endif
+#define KOF_SEQUENCE_UPLOAD_CHUNK_BYTES 8192u
+_Static_assert(KOF_SEQUENCE_LOAD_CHUNK_BYTES<=KOF_ASSET_CHUNK_MAX &&
+               KOF_SEQUENCE_LOAD_CHUNK_BYTES>=KOF_SEQUENCE_UPLOAD_CHUNK_BYTES &&
+               KOF_SEQUENCE_LOAD_CHUNK_BYTES%2048u==0u,"invalid load chunk");
+static _Alignas(32) uint8_t scratch[KOF_SEQUENCE_LOAD_CHUNK_BYTES];
 static _Alignas(32) uint16_t commands[2048][8];
 volatile uint32_t kof_sequence_stage,kof_sequence_frames,kof_sequence_clip,kof_sequence_index,kof_sequence_commands;
 volatile uint32_t kof_sequence_vram_free,kof_sequence_vram_requested;
@@ -45,7 +52,7 @@ int main(void){
         check(kof_asset_begin(&assets.store,&desc,1)==KOF_ASSET_OK);
         kof_asset_result r;
         do{
-            r=kof_asset_step(&assets.store,scratch,sizeof scratch);
+            r=kof_asset_step_cd(&assets.store,scratch,sizeof scratch);
             if(r==KOF_ASSET_PENDING||r==KOF_ASSET_OK)
                 kof_loading_update(&loading,r==KOF_ASSET_OK?c->bytes:assets.store.progress,c->bytes,0);
         }while(r==KOF_ASSET_PENDING);
@@ -57,7 +64,7 @@ int main(void){
         kof_sequence_stage=3;
         kof_loading_phase(&loading,"UPLOADING VDP1 TEXTURES",ci+1,clips);
         for(uint32_t p=0;p<c->atlas_bytes;){
-            uint32_t n=c->atlas_bytes-p;if(n>sizeof scratch)n=sizeof scratch;
+            uint32_t n=c->atlas_bytes-p;if(n>KOF_SEQUENCE_UPLOAD_CHUNK_BYTES)n=KOF_SEQUENCE_UPLOAD_CHUNK_BYTES;
             check(kof_asset_read(&assets.store,a,p,scratch,n)==KOF_ASSET_OK);
             /* SDK VRAM write fences previous VDP1 work before replacing atlas. */
             SAT_PANIC_IF_ERROR(sat_vdp1_vram_write(base+p,scratch,n));p+=n;
