@@ -123,7 +123,10 @@ def resolve_symbols(elf,build):
               'kof_sequence_live_fix_vdp2_tiles','kof_sequence_live_fix_vdp2_pal_words',
               'kof_sequence_live_fix_vdp2_max_updates',
               'kof_sequence_live_zoom_memo','kof_sequence_live_zoom_hits','kof_sequence_live_zoom_misses',
-              'kof_sequence_live_fast_hash','kof_sequence_live_fix_map_reuse','kof_sequence_live_fix_map_reused')
+              'kof_sequence_live_fast_hash','kof_sequence_live_fix_map_reuse','kof_sequence_live_fix_map_reused',
+              'kof_sequence_live_slave_hash','kof_sequence_live_slave_hash_jobs','kof_sequence_live_slave_hash_done',
+              'kof_sequence_live_slave_hash_wait_ticks','kof_sequence_live_slave_hash_elapsed_ticks',
+              'kof_sequence_live_slave_hash_errors')
     return {k:found[k] for k in (*SYMBOLS,*optional) if k in found}
 
 def main():

@@ -3,6 +3,14 @@
  * FIX through VDP1 too, independently of the optimized resident control. */
 #include "kof98/strip.h"
 #include "kof98/strip_hash.h"
+#ifndef KOF_LIVE_SLAVE_HASH
+#define KOF_LIVE_SLAVE_HASH 0
+#endif
+#if KOF_LIVE_SLAVE_HASH
+#include <saturn/dual_sh2.h>
+#include <saturn/sh2.h>
+#endif
+volatile uint32_t kof_sequence_live_slave_hash;
 #ifndef KOF_LIVE_FAST_HASH
 #define KOF_LIVE_FAST_HASH 0
 #endif
@@ -176,6 +184,15 @@ static uint32_t strip_hash(uint32_t h,const kof_strip_builder *b,unsigned bias){
       }
     return h;
 }
+static void verify_hash(const seq_live_frame *f,uint32_t h){
+    if(h!=f->hash||sprites.count!=f->sprites||fix.count!=f->fix){
+        ++kof_sequence_live_hash_errors;check(0);
+    }
+    ++kof_sequence_live_verified;
+}
+#if KOF_LIVE_SLAVE_HASH
+#include "sequence_live_slave_hash.inc"
+#endif
 static void build_strips(const seq_live_frame *f){
     uint32_t start=sat_field_count();
     uint32_t t=ticks();
@@ -326,13 +343,11 @@ static void build_strips(const seq_live_frame *f){
 #endif
     }
     check(p==end&&kof_strip_complete(&sprites)&&kof_strip_complete(&fix));
+#if !KOF_LIVE_SLAVE_HASH
     t=ticks();
-    const uint32_t h=strip_hash(strip_hash(2166136261u,&sprites,0),&fix,524288u);
-    if(h!=f->hash||sprites.count!=f->sprites||fix.count!=f->fix){
-        ++kof_sequence_live_hash_errors;check(0);
-    }
+    verify_hash(f,strip_hash(strip_hash(2166136261u,&sprites,0),&fix,524288u));
     kof_sequence_live_hash_ticks+=ticks()-t;
-    ++kof_sequence_live_verified;
+#endif
     kof_sequence_live_lspc_fields+=sat_field_count()-start;
 }
 static unsigned key_bucket(const pattern_key *key){
@@ -513,6 +528,10 @@ int main(void){
     kof_sequence_live_fix_reuse=KOF_LIVE_FIX_REUSE;
     kof_sequence_live_zoom_memo=KOF_LIVE_ZOOM_MEMO;
     kof_sequence_live_fast_hash=KOF_LIVE_FAST_HASH;
+    kof_sequence_live_slave_hash=KOF_LIVE_SLAVE_HASH;
+#if KOF_LIVE_SLAVE_HASH
+    live_hash_start();
+#endif
     kof_sequence_live_timer_hz=sat_time_frequency_hz();
     kof_sequence_live_frame_count=sizeof seq_live_frames/sizeof seq_live_frames[0];
     for(;;){
@@ -525,6 +544,9 @@ int main(void){
             check(f->bytes<=sizeof scratch);
             kof_sequence_stage=5;
             build_strips(f);
+#if KOF_LIVE_SLAVE_HASH
+            live_hash_dispatch();
+#endif
             uint32_t start=sat_field_count(),draw_start=ticks();
             if(++stamp==0){for(unsigned j=0;j<LIVE_PAT_SLOTS;++j)patterns[j].stamp=0;
                 for(unsigned j=0;j<LIVE_LUT_SLOTS;++j)luts[j].stamp=0;stamp=1;}
@@ -544,6 +566,11 @@ int main(void){
             check(count==stats.submitted&&!stats.culled&&!stats.dropped&&!stats.invalid);
             kof_sequence_live_draw_fields+=sat_field_count()-start;
             kof_sequence_live_cache_ticks+=ticks()-draw_start;
+#if KOF_LIVE_SLAVE_HASH
+            /* No list submission or FIX publication before the exact oracle
+             * has acknowledged this immutable set of strips. */
+            live_hash_join(f);
+#endif
             ++kof_sequence_live_timed_frames;
             kof_sequence_stage=4;
 #if KOF_LIVE_FIX_VDP2
