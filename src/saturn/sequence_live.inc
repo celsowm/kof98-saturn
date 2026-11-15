@@ -21,6 +21,12 @@ volatile uint32_t kof_sequence_live_fast_hash;
 #include "kof98/lut_memo.h"
 #include "kof98/pattern_key.h"
 #include "kof98/fix_state.h"
+#include "kof98/sprite_epoch.h"
+#ifndef KOF_LIVE_INDEPENDENT_SPRITES
+#define KOF_LIVE_INDEPENDENT_SPRITES 0
+#endif
+volatile uint32_t kof_sequence_live_independent_sprites,kof_sequence_live_sprite_epoch_lines;
+volatile uint32_t kof_sequence_live_sprite_skipped_boundaries;
 #ifndef KOF_LIVE_PACKED_KEYS
 #define KOF_LIVE_PACKED_KEYS 1
 #endif
@@ -97,6 +103,9 @@ volatile uint32_t kof_sequence_live_segment_schedule,kof_sequence_live_schedule_
 #endif
 #if KOF_LIVE_SEGMENT_SCHEDULE && !KOF_LIVE_RANGE_SCHEDULE
 #error Segmented schedule requires range schedule
+#endif
+#if KOF_LIVE_INDEPENDENT_SPRITES && (!KOF_LIVE_FIX_REUSE || !KOF_LIVE_RANGE_SCHEDULE)
+#error Independent sprite epochs require FIX reuse and range schedule
 #endif
 volatile uint32_t kof_sequence_live_range_schedule,kof_sequence_live_schedule_lines;
 #if KOF_LIVE_EPOCHS && (!KOF_LIVE_SCHEDULED || !KOF_LIVE_VERSIONED_STRIPS)
@@ -316,6 +325,40 @@ static void build_strips(const seq_live_frame *f){
         }
 #endif
 #if KOF_LIVE_EPOCHS
+#if KOF_LIVE_INDEPENDENT_SPRITES
+        /* Build ahead only across proven sprite-equivalent raster state,
+         * bounded by the schedule validity window. All headers/writes are
+         * still consumed and validated by the ordinary reader at their
+         * original line. FIX can advance on a different timeline. */
+        if(y==sprites.line){
+            t=ticks();
+            unsigned stop=kof_sprite_trace_until(p,end,y+1u,schedule_until,anim,live_state);
+            check(stop>y&&stop<=schedule_until);
+#if KOF_LIVE_ZOOM_RUNS
+        check(!kof_strip_push_sprite_epoch_runs(&sprites,&schedule,live_state,zoom,pal,palette_versions,anim,stop,&zoom_run_memo));
+        kof_sequence_live_zoom_hits=zoom_run_memo.base.hits;kof_sequence_live_zoom_misses=zoom_run_memo.base.misses;
+#elif KOF_LIVE_ZOOM_MEMO
+        check(!kof_strip_push_sprite_epoch_cached(&sprites,&schedule,live_state,zoom,pal,palette_versions,anim,stop,&zoom_memo));
+        kof_sequence_live_zoom_hits=zoom_memo.hits;kof_sequence_live_zoom_misses=zoom_memo.misses;
+#else
+        check(!kof_strip_push_sprite_epoch(&sprites,&schedule,live_state,zoom,pal,palette_versions,anim,stop));
+#endif
+            kof_sequence_live_strip_ticks+=ticks()-t;
+            ++kof_sequence_live_epoch_count;
+            kof_sequence_live_sprite_epoch_lines+=stop-y;
+            for(unsigned line=y;line<stop;++line)kof_sequence_live_eval_slots+=schedule.count[line];
+        }else check(y<sprites.line);
+        /* Retain the cheap empty-header consumption, but never skip a
+         * boundary at which either builder or the schedule needs work. */
+        unsigned stop=sprites.line;
+        if(stop>fix_until)stop=fix_until;
+        if(stop>schedule_until)stop=schedule_until;
+        unsigned next=y+1u;
+        while(next<stop&&(size_t)(end-p)>=6u&&
+              p[0]==0u&&p[1]==anim&&p[2]==0u&&p[3]==bios&&p[4]==0u&&p[5]==0u){p+=6u;++next;}
+        if(next<sprites.line)++kof_sequence_live_sprite_skipped_boundaries;
+        y=next-1u;
+#else
         /* Consume only subsequent unchanged line headers of the same epoch.
          * Keep the next mutation header for the outer loop. */
         unsigned stop=y+1u;
@@ -340,6 +383,7 @@ static void build_strips(const seq_live_frame *f){
         ++kof_sequence_live_epoch_count;
         for(unsigned line=y;line<stop;++line)kof_sequence_live_eval_slots+=schedule.count[line];
         y=stop-1u;
+#endif
 #else
         t=ticks();
         check(!kof_lspc_line_scheduled(&schedule,live_state,KOF_LSPC_WORDS,zoom,sizeof zoom,anim,y,(int)bios,&ir));
@@ -560,6 +604,7 @@ int main(void){
     kof_sequence_live_zoom_memo=KOF_LIVE_ZOOM_MEMO;
     kof_sequence_live_zoom_runs=KOF_LIVE_ZOOM_RUNS;
     kof_sequence_live_compact_build=KOF_LIVE_COMPACT_BUILD;
+    kof_sequence_live_independent_sprites=KOF_LIVE_INDEPENDENT_SPRITES;
     kof_sequence_live_fast_hash=KOF_LIVE_FAST_HASH;
     kof_sequence_live_slave_hash=KOF_LIVE_SLAVE_HASH;
 #if KOF_LIVE_SLAVE_HASH

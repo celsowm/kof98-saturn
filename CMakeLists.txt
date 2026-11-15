@@ -36,6 +36,9 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
   add_executable(test_tile_cache tests/test_tile_cache.c)
   target_link_libraries(test_tile_cache PRIVATE kof_asset_store)
   add_test(NAME tile_cache COMMAND test_tile_cache)
+  add_executable(test_sprite_epoch tests/test_sprite_epoch.c)
+  target_include_directories(test_sprite_epoch PRIVATE include)
+  add_test(NAME sprite_epoch COMMAND test_sprite_epoch)
   add_executable(test_strip_hash tests/test_strip_hash.c)
   target_include_directories(test_strip_hash PRIVATE include)
   add_test(NAME strip_hash COMMAND test_strip_hash)
@@ -139,6 +142,7 @@ if(KOF_FRAME_DIR)
   libsaturn_add_disc(kof_frame_replay ROOT_FILES "${KOF_FRAME_DIR}/FRAME.BIN")
 endif()
 
+option(KOF_LIVE_INDEPENDENT_SPRITES "Advance sprites independently of FIX-only raster changes" OFF)
 option(KOF_LIVE_ZOOM_RUNS "Memoize contiguous source tile runs and flipped rows" OFF)
 option(KOF_LIVE_SEGMENT_SCHEDULE "Schedule visibility by constant vertical coverage segments" OFF)
 option(KOF_LIVE_SLAVE_HASH "Verify completed live strips on Slave SH-2 while Master emits VDP1" OFF)
@@ -177,6 +181,7 @@ if(KOF_SEQUENCE_DIR)
     KOF_LIVE_ZOOM_MEMO=$<BOOL:${KOF_LIVE_ZOOM_MEMO}>
     KOF_LIVE_ZOOM_RUNS=$<BOOL:${KOF_LIVE_ZOOM_RUNS}>
     KOF_LIVE_COMPACT_BUILD=$<BOOL:${KOF_LIVE_COMPACT_BUILD}>
+    KOF_LIVE_INDEPENDENT_SPRITES=$<BOOL:${KOF_LIVE_INDEPENDENT_SPRITES}>
     KOF_LIVE_FAST_HASH=$<BOOL:${KOF_LIVE_FAST_HASH}>
     KOF_LIVE_SLAVE_HASH=$<BOOL:${KOF_LIVE_SLAVE_HASH}>
     KOF_LIVE_SEGMENT_SCHEDULE=$<BOOL:${KOF_LIVE_SEGMENT_SCHEDULE}>
