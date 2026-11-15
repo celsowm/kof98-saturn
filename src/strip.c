@@ -151,6 +151,40 @@ int kof_strip_push_sprite_epoch(kof_strip_builder *b,
 fail_epoch:
     b->failed=1;return -1;
 }
+int kof_strip_push_sprite_epoch_cached(kof_strip_builder *b,
+    const kof_lspc_schedule *schedule,const uint16_t *v,const uint8_t *z,
+    const uint16_t *pal,const uint16_t versions[256],unsigned anim,unsigned end,kof_zoom_memo *memo){
+    if(!b||!b->strips||b->failed)return -1;
+    if(!schedule||!v||!z||!pal||!versions||!memo||end<=b->line||end>224u)goto fail;
+    const unsigned first=b->line;
+    for(unsigned slot=0;slot<381u;++slot){
+        const kof_lspc_column *c=&schedule->columns[slot];
+        unsigned y=c->first>first?c->first:first,stop=c->last<end?c->last:end;
+        if(y>=stop)continue;
+        const unsigned contiguous=c->selected_count==(unsigned)c->last-c->first;
+        const uint16_t *map=kof_zoom_memo_get(memo,z,c->zy,c->rows>32u);
+        const unsigned offset=(16u-c->y)&511u;
+        const uint16_t *scb=v+slot*64u;
+        while(y<stop){
+            if(!contiguous&&!selected(c,y)){++y;continue;}
+            unsigned a=map[(y+offset)&511u],tile=a>>4,attr=scb[tile*2u+1u];
+            uint32_t code=scb[tile*2u]|((attr&0xf0u)<<12);
+            if(attr&8u)code=(code&~7u)|(anim&7u);else if(attr&4u)code=(code&~3u)|(anim&3u);
+            unsigned flip=(attr&2u)?15u:0u;
+            uint8_t rows[16];unsigned n=0,start=y;
+            do{
+                rows[n++]=(uint8_t)((a&15u)^flip);++y;
+                if(y==stop||n==16u||(!contiguous&&!selected(c,y)))break;
+                a=map[(y+offset)&511u];
+            }while((a>>4)==tile);
+            if(append_run(b,slot,start,code&0x7ffffu,c->x,c->mask,c->width,attr&1u,
+                          attr>>8,pal,versions,rows,n))goto fail;
+        }
+    }
+    b->line=(uint16_t)end;return 0;
+fail:
+    b->failed=1;return -1;
+}
 int kof_strip_push_fix_epoch(kof_strip_builder *f,const uint16_t *v,
     const uint16_t *pal,const uint16_t versions[256],int bios,unsigned end){
     if(!f||!f->strips||f->failed)return -1;

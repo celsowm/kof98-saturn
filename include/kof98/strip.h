@@ -1,6 +1,7 @@
 #ifndef KOF98_STRIP_H
 #define KOF98_STRIP_H
 #include "kof98/lspc_ir.h"
+#include "kof98/zoom_memo.h"
 #define KOF_STRIP_END UINT16_MAX
 #define KOF_STRIP_SLOTS 381u
 #define KOF_STRIP_ROWS 16u
@@ -42,6 +43,10 @@ int kof_strip_push_epoch(kof_strip_builder *sprites,kof_strip_builder *fix,
 int kof_strip_push_sprite_epoch(kof_strip_builder*,const kof_lspc_schedule*,
     const uint16_t *vram,const uint8_t *zoom,const uint16_t *pal,
     const uint16_t versions[256],unsigned anim,unsigned end);
+/* Same semantics as sprite epoch; memo belongs to this immutable L0 ROM. */
+int kof_strip_push_sprite_epoch_cached(kof_strip_builder*,const kof_lspc_schedule*,
+    const uint16_t *vram,const uint8_t *zoom,const uint16_t *pal,
+    const uint16_t versions[256],unsigned anim,unsigned end,kof_zoom_memo*);
 int kof_strip_push_fix_epoch(kof_strip_builder*,const uint16_t *vram,
     const uint16_t *pal,const uint16_t versions[256],int bios,unsigned end);
 int kof_strip_complete(const kof_strip_builder*);

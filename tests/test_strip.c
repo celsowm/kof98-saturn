@@ -71,6 +71,7 @@ static int same_chain(const kof_strip_builder *a,const kof_strip_builder *b){
  }
  return 1;
 }
+static kof_zoom_memo epoch_memo;
 static int epoch_test(void){
  kof_strip_builder a,b,af,bf;kof_line_ir ir,fi={0};
  uint16_t versions[256]={0};
@@ -106,7 +107,8 @@ static int epoch_test(void){
    }
    CHECK(!kof_strip_push(&af,&fi,pal,4096u));
   }
-  CHECK(!kof_strip_push_epoch(&b,&bf,&epoch_schedule,epoch_vram,epoch_zoom,pal,versions,anim,(int)bios,end));
+  CHECK(!kof_strip_push_sprite_epoch_cached(&b,&epoch_schedule,epoch_vram,epoch_zoom,pal,versions,anim,end,&epoch_memo));
+  CHECK(!kof_strip_push_fix_epoch(&bf,epoch_vram,pal,versions,(int)bios,end));
   start=end;
  }
  CHECK(kof_strip_complete(&b)&&kof_strip_complete(&bf));

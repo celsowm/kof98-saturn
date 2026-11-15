@@ -20,6 +20,7 @@ typedef struct {
     uint16_t x,mask,y;
     uint8_t width,rows,zy;
     uint16_t first,last; /* selected visible line interval, last exclusive */
+    uint16_t selected_count; /* count inside bounds, permits contiguous fast path */
     uint32_t selected[7]; /* selected by 96-slot limit, not just vertical visibility */
 } kof_lspc_column;
 typedef struct {

@@ -39,7 +39,7 @@ static void schedule_range(kof_lspc_schedule *s,unsigned n,unsigned first,unsign
         if(k<KOF_LINE_SPRITES){
             s->slots[y][k]=(uint16_t)n;s->count[y]=(uint8_t)(k+1u);
             kof_lspc_column *c=&s->columns[n];
-            if(c->width){c->selected[y>>5]|=1u<<(y&31u);if(y<c->first)c->first=(uint16_t)y;if(y+1u>c->last)c->last=(uint16_t)(y+1u);}
+            if(c->width){++c->selected_count;c->selected[y>>5]|=1u<<(y&31u);if(y<c->first)c->first=(uint16_t)y;if(y+1u>c->last)c->last=(uint16_t)(y+1u);}
         }
     }
 }
@@ -51,7 +51,7 @@ int kof_lspc_schedule_build(kof_lspc_schedule *s,const uint16_t *v,uint32_t word
         unsigned ctl=v[0x8200u+n],zoom=v[0x8000u+n];
         if(ctl&64u){x=(x+zx+1u)&511u;zx=(zoom>>8)&15u;}
         else{y=512u-(ctl>>7);x=v[0x8400u+n]>>7;zy=zoom&255u;zx=(zoom>>8)&15u;rows=ctl&63u;}
-        s->columns[n].first=224u;s->columns[n].last=0u;
+        s->columns[n].first=224u;s->columns[n].last=0u;s->columns[n].selected_count=0u;
         if(!rows)continue;
         unsigned px=x,mask=0,first=0,width=0;
         /* Common unclipped case: width is the zoom nibble + one. */
@@ -94,16 +94,17 @@ static unsigned schedule_epoch_range(kof_lspc_schedule *s,kof_lspc_column *c,
         unsigned limit=(word+1u)*32u;
         if(limit>end)limit=end;
         uint32_t bit=kof_lspc_bit[begin&31u],selected=0;
+        unsigned count=0;
         for(unsigned y=begin;y<limit;++y,bit<<=1){
             unsigned k=s->count[y];
             if(k<96u){
                 s->count[y]=(uint8_t)(k+1u);filled+=k==95u;
-                selected|=bit;
+                selected|=bit;++count;
                 if(c->first>y)c->first=(uint16_t)y;
                 c->last=(uint16_t)(y+1u);
             }
         }
-        c->selected[word]|=selected;
+        c->selected[word]|=selected;c->selected_count=(uint16_t)(c->selected_count+count);
         begin=limit;
     }
     return filled;
@@ -115,7 +116,7 @@ int kof_lspc_schedule_build_range(kof_lspc_schedule *s,const uint16_t *v,
     unsigned x=0,y=0,rows=0,zy=0,zx=0,filled=0;
     for(unsigned n=0;n<381u;++n){
         kof_lspc_column *c=&s->columns[n];
-        c->first=224u;c->last=0u;
+        c->first=224u;c->last=0u;c->selected_count=0u;
         if(filled==stop-first)continue; /* every line reached its hardware limit */
         unsigned ctl=v[0x8200u+n],zoom=v[0x8000u+n];
         if(ctl&64u){x=(x+zx+1u)&511u;zx=(zoom>>8)&15u;}
