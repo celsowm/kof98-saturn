@@ -37,11 +37,14 @@ static int range_equal(unsigned first,unsigned end,unsigned segmented){
  if(segmented){
   if(kof_lspc_schedule_build_segments(&range_schedule,v,KOF_LSPC_WORDS,first,end,&segments)||!segments||segments>end-first)return 0;
  }else if(kof_lspc_schedule_build_range(&range_schedule,v,KOF_LSPC_WORDS,first,end))return 0;
+ unsigned active=0;
  for(unsigned n=0;n<381u;++n){
   const kof_lspc_column *c=&range_schedule.columns[n];unsigned count=0;
   for(unsigned y=first;y<end;++y)if(c->first<=y&&y<c->last&&(c->selected[y>>5]&kof_lspc_bit[y&31u]))++count;
   if(c->selected_count!=count)return 0;
+  if(count){if(active>=range_schedule.active_count||range_schedule.active_slots[active++]!=n)return 0;}
  }
+ if(active!=range_schedule.active_count)return 0;
  for(unsigned y=first;y<end;++y){
   if(schedule.count[y]!=range_schedule.count[y])return 0;
   unsigned j=0;

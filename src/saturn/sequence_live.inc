@@ -69,6 +69,10 @@ volatile uint32_t kof_sequence_live_zoom_memo,kof_sequence_live_zoom_hits,kof_se
 #error Zoom runs require the vertical zoom memo
 #endif
 volatile uint32_t kof_sequence_live_zoom_runs;
+#ifndef KOF_LIVE_COMPACT_BUILD
+#define KOF_LIVE_COMPACT_BUILD 0
+#endif
+volatile uint32_t kof_sequence_live_compact_build,kof_sequence_live_active_slots;
 #if KOF_LIVE_ZOOM_RUNS
 static kof_zoom_run_memo zoom_run_memo;
 #elif KOF_LIVE_ZOOM_MEMO
@@ -299,6 +303,7 @@ static void build_strips(const seq_live_frame *f){
             check(!kof_lspc_schedule_build_range(&schedule,live_state,KOF_LSPC_WORDS,y,schedule_until));
 #endif
             kof_sequence_live_schedule_lines+=schedule_until-y;
+            kof_sequence_live_active_slots+=schedule.active_count;
             kof_sequence_live_schedule_ticks+=ticks()-t;
             ++kof_sequence_live_schedule_builds;schedule_dirty=0;
         }
@@ -554,6 +559,7 @@ int main(void){
     kof_sequence_live_fix_reuse=KOF_LIVE_FIX_REUSE;
     kof_sequence_live_zoom_memo=KOF_LIVE_ZOOM_MEMO;
     kof_sequence_live_zoom_runs=KOF_LIVE_ZOOM_RUNS;
+    kof_sequence_live_compact_build=KOF_LIVE_COMPACT_BUILD;
     kof_sequence_live_fast_hash=KOF_LIVE_FAST_HASH;
     kof_sequence_live_slave_hash=KOF_LIVE_SLAVE_HASH;
 #if KOF_LIVE_SLAVE_HASH

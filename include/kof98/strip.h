@@ -16,10 +16,12 @@ typedef struct {
     uint16_t capacity,count,line;
     uint16_t head[KOF_STRIP_SLOTS],tail[KOF_STRIP_SLOTS];
     uint32_t spans;
-    uint32_t palette_token[KOF_STRIP_SLOTS]; /* versioned path only */
+    uint32_t palette_token[KOF_STRIP_SLOTS]; /* valid only when tail != KOF_STRIP_END */
     uint8_t failed;
 } kof_strip_builder;
-/* Caller-owned bounded workspace. A failed frame must be discarded. */
+/* Caller-owned bounded workspace. A failed frame must be discarded.
+ * begin resets the logical chains; inactive tokens and struct padding
+ * are unspecified, not part of the serialized strip representation. */
 int kof_strip_begin(kof_strip_builder*,kof_strip*,uint16_t capacity);
 /* Sprite-only IR, lines sequential from 0; current palette bank (4096 words). */
 int kof_strip_push(kof_strip_builder*,const kof_line_ir*,const uint16_t*,uint32_t palette_words);

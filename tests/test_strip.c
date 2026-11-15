@@ -125,6 +125,7 @@ static int run_holes_test(void){
  uint16_t versions[256]={0};
  memset(&epoch_schedule,0,sizeof epoch_schedule);
  for(unsigned i=0;i<381u;++i)epoch_schedule.columns[i].first=224u;
+ epoch_schedule.active_count=1;epoch_schedule.active_slots[0]=0;
  kof_lspc_column *c=&epoch_schedule.columns[0];
  c->first=0;c->last=224;c->x=5;c->mask=65535;c->width=16;c->rows=33;c->zy=255;c->y=22;
  for(unsigned y=0;y<224u;++y)if(y%11u!=3u&&y%11u!=4u){
@@ -134,6 +135,10 @@ static int run_holes_test(void){
    epoch_vram[j*2u]=(uint16_t)(j/2u);
    epoch_vram[j*2u+1u]=(uint16_t)((j&1u)?0x102u:0x101u);
  }
+ /* Poison previous-frame state: clearing dead tokens is unnecessary,
+  * but all live fields and unused row bytes must be initialized. */
+ memset(&a,0xa5,sizeof a);memset(&b,0x5a,sizeof b);
+ memset(strips,0xa5,sizeof strips);memset(fast_strips,0x5a,sizeof fast_strips);
  CHECK(!kof_strip_begin(&a,strips,2048));CHECK(!kof_strip_begin(&b,fast_strips,2048));
  for(unsigned start=0;start<224u;){
   unsigned end=start+17u;if(end>224u)end=224u;

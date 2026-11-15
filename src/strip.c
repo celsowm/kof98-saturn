@@ -1,9 +1,19 @@
 #include "kof98/strip.h"
 #include "bytes.h"
+#ifndef KOF_LIVE_COMPACT_BUILD
+#define KOF_LIVE_COMPACT_BUILD 0
+#endif
 static unsigned pop(uint16_t m){unsigned n=0;while(m){m=(uint16_t)(m&(m-1u));++n;}return n;}
 int kof_strip_begin(kof_strip_builder *b,kof_strip *s,uint16_t cap){
     if(!b||!s||!cap)return -1;
+#if KOF_LIVE_COMPACT_BUILD
+    /* Tokens are meaningful only when a slot has a tail. Reset every
+     * chain first; the first append publishes its token before any read.
+     * Avoid clearing 381 dead tokens and clearing heads twice. */
+    b->strips=s;b->capacity=cap;b->count=0;b->line=0;b->spans=0;b->failed=0;
+#else
     memset(b,0,sizeof *b);b->strips=s;b->capacity=cap;
+#endif
     for(unsigned i=0;i<KOF_STRIP_SLOTS;++i)b->head[i]=b->tail[i]=KOF_STRIP_END;
     return 0;
 }
@@ -99,10 +109,28 @@ static int append_run(kof_strip_builder *b,unsigned slot,unsigned y,uint32_t til
         uint16_t idx=b->count++;
         if(s)s->next=idx;else b->head[slot]=idx;
         b->tail[slot]=idx;s=&b->strips[idx];
+#if KOF_LIVE_COMPACT_BUILD
+        /* Initialize each semantic field once. Never hash struct padding.
+         * The unused row suffix MUST be zero for the KFR2 oracle. */
+        s->tile=tile;s->x=(uint16_t)x;s->y=(uint16_t)y;s->mask=mask;
+        s->next=KOF_STRIP_END;s->width=(uint8_t)width;s->flip=(uint8_t)flip;s->height=(uint8_t)n;
+        s->colors[0]=colors[0];s->colors[1]=colors[1];
+        s->colors[2]=colors[2];s->colors[3]=colors[3];
+        s->colors[4]=colors[4];s->colors[5]=colors[5];
+        s->colors[6]=colors[6];s->colors[7]=colors[7];
+        s->colors[8]=colors[8];s->colors[9]=colors[9];
+        s->colors[10]=colors[10];s->colors[11]=colors[11];
+        s->colors[12]=colors[12];s->colors[13]=colors[13];
+        s->colors[14]=colors[14];s->colors[15]=colors[15];
+        unsigned i=0;
+        for(;i<n;++i)s->rows[i]=rows[i];
+        for(;i<16u;++i)s->rows[i]=0;
+#else
         *s=(kof_strip){.tile=tile,.x=(uint16_t)x,.y=(uint16_t)y,.mask=mask,
             .next=KOF_STRIP_END,.width=(uint8_t)width,.flip=(uint8_t)flip,.height=(uint8_t)n};
         memcpy(s->colors,colors,32u);
         for(unsigned i=0;i<n;++i)s->rows[i]=rows[i];
+#endif
         b->spans+=n;
     }
     b->palette_token[slot]=token;
@@ -191,7 +219,14 @@ int kof_strip_push_sprite_epoch_runs(kof_strip_builder *b,
     if(!b||!b->strips||b->failed)return -1;
     if(!schedule||!v||!z||!pal||!versions||!memo||end<=b->line||end>224u)goto fail;
     const unsigned first=b->line;
+#if KOF_LIVE_COMPACT_BUILD
+    if(schedule->active_count>381u)goto fail;
+    for(unsigned j=0;j<schedule->active_count;++j){
+        unsigned slot=schedule->active_slots[j];
+        if(slot>=381u)goto fail;
+#else
     for(unsigned slot=0;slot<381u;++slot){
+#endif
         const kof_lspc_column *c=&schedule->columns[slot];
         unsigned y=c->first>first?c->first:first,stop=c->last<end?c->last:end;
         if(y>=stop)continue;

@@ -14,6 +14,8 @@ else()
 endif()
 add_library(kof_lspc_ir STATIC src/lspc_ir.c src/strip.c src/strip_emit.c)
 target_include_directories(kof_lspc_ir PUBLIC include)
+option(KOF_LIVE_COMPACT_BUILD "Use active slot lists and single-write strip construction" OFF)
+target_compile_definitions(kof_lspc_ir PRIVATE KOF_LIVE_COMPACT_BUILD=$<BOOL:${KOF_LIVE_COMPACT_BUILD}>)
 target_include_directories(kof_asset_store PUBLIC include)
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(kof_dispatch PRIVATE -Wall -Wextra -Wpedantic -Werror)
@@ -174,6 +176,7 @@ if(KOF_SEQUENCE_DIR)
     KOF_LIVE_FIX_VDP2=$<BOOL:${KOF_LIVE_FIX_VDP2}>
     KOF_LIVE_ZOOM_MEMO=$<BOOL:${KOF_LIVE_ZOOM_MEMO}>
     KOF_LIVE_ZOOM_RUNS=$<BOOL:${KOF_LIVE_ZOOM_RUNS}>
+    KOF_LIVE_COMPACT_BUILD=$<BOOL:${KOF_LIVE_COMPACT_BUILD}>
     KOF_LIVE_FAST_HASH=$<BOOL:${KOF_LIVE_FAST_HASH}>
     KOF_LIVE_SLAVE_HASH=$<BOOL:${KOF_LIVE_SLAVE_HASH}>
     KOF_LIVE_SEGMENT_SCHEDULE=$<BOOL:${KOF_LIVE_SEGMENT_SCHEDULE}>

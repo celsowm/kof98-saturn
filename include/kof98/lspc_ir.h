@@ -27,6 +27,8 @@ typedef struct {
     kof_lspc_column columns[381];
     uint16_t slots[224][KOF_LINE_SPRITES];
     uint8_t count[224];
+    /* Ascending slots with at least one accepted, horizontally visible line. */
+    uint16_t active_count,active_slots[381];
 } kof_lspc_schedule;
 int kof_lspc_schedule_build(kof_lspc_schedule*,const uint16_t *vram,uint32_t words);
 /* Epoch-only schedule: only count[first..end) and selected bits/first/last

@@ -45,6 +45,7 @@ static void schedule_range(kof_lspc_schedule *s,unsigned n,unsigned first,unsign
 }
 int kof_lspc_schedule_build(kof_lspc_schedule *s,const uint16_t *v,uint32_t words){
     if(!s||!v||words<KOF_LSPC_WORDS)return -1;
+    s->active_count=0;
     for(unsigned i=0;i<224u;++i)s->count[i]=0;
     unsigned x=0,y=0,rows=0,zy=0,zx=0;
     for(unsigned n=0;n<381u;++n){
@@ -68,6 +69,7 @@ int kof_lspc_schedule_build(kof_lspc_schedule *s,const uint16_t *v,uint32_t word
         const unsigned end=begin+16u*(rows>32u?32u:rows);
         schedule_range(s,n,begin,end);
         if(end>512u)schedule_range(s,n,0,end-512u);
+        if(s->columns[n].selected_count)s->active_slots[s->active_count++]=(uint16_t)n;
     }
     return 0;
 }
@@ -112,6 +114,7 @@ static unsigned schedule_epoch_range(kof_lspc_schedule *s,kof_lspc_column *c,
 int kof_lspc_schedule_build_range(kof_lspc_schedule *s,const uint16_t *v,
     uint32_t words,unsigned first,unsigned stop){
     if(!s||!v||words<KOF_LSPC_WORDS||first>=stop||stop>224u)return -1;
+    s->active_count=0;
     for(unsigned i=first;i<stop;++i)s->count[i]=0;
     unsigned x=0,y=0,rows=0,zy=0,zx=0,filled=0;
     for(unsigned n=0;n<381u;++n){
@@ -139,6 +142,7 @@ int kof_lspc_schedule_build_range(kof_lspc_schedule *s,const uint16_t *v,
         /* Wrapped interval first so selected bounds stay monotonic. */
         if(end>512u)filled+=schedule_epoch_range(s,c,0,end-512u,first,stop);
         filled+=schedule_epoch_range(s,c,begin,end,first,stop);
+        if(c->selected_count)s->active_slots[s->active_count++]=(uint16_t)n;
     }
     return 0;
 }
@@ -190,6 +194,7 @@ static unsigned segment_range(kof_lspc_schedule *s,kof_lspc_column *c,
 int kof_lspc_schedule_build_segments(kof_lspc_schedule *s,const uint16_t *v,
     uint32_t words,unsigned first,unsigned stop,unsigned *segments){
     if(!s||!v||words<KOF_LSPC_WORDS||first>=stop||stop>224u)return -1;
+    s->active_count=0;
     uint8_t boundary[225]={0},next[225];
     boundary[first]=boundary[stop]=1;
     unsigned x=0,y=0,rows=0,zy=0,zx=0;
@@ -233,6 +238,7 @@ int kof_lspc_schedule_build_segments(kof_lspc_schedule *s,const uint16_t *v,
         unsigned begin=(c->y-16u)&511u,end=begin+16u*(c->rows>32u?32u:c->rows);
         if(end>512u)filled+=segment_range(s,c,next,0,end-512u,first,stop);
         filled+=segment_range(s,c,next,begin,end,first,stop);
+        if(c->selected_count)s->active_slots[s->active_count++]=(uint16_t)n;
     }
     /* Expand only the final evaluated counts for existing diagnostics. */
     for(unsigned line=first;line<stop;){
