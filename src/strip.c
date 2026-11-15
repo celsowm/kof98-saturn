@@ -92,6 +92,9 @@ fail:b->failed=1;return -1;
 static int append_run(kof_strip_builder *b,unsigned slot,unsigned y,uint32_t tile,
     unsigned x,uint16_t mask,unsigned width,unsigned flip,unsigned palette,
     const uint16_t *pal,const uint16_t *versions,const uint8_t *rows,unsigned n){
+    /* Internal runs are nonempty and at most one strip long. Fail before
+     * modifying the builder if a caller violates that contract. */
+    if(!n||n>KOF_STRIP_ROWS)return -1;
     const uint16_t *colors=pal+16u*palette;
     const uint32_t token=1u+((uint32_t)versions[palette]<<8)+palette;
     uint16_t tail=b->tail[slot];
@@ -122,9 +125,10 @@ static int append_run(kof_strip_builder *b,unsigned slot,unsigned y,uint32_t til
         s->colors[10]=colors[10];s->colors[11]=colors[11];
         s->colors[12]=colors[12];s->colors[13]=colors[13];
         s->colors[14]=colors[14];s->colors[15]=colors[15];
-        unsigned i=0;
-        for(;i<n;++i)s->rows[i]=rows[i];
-        for(;i<16u;++i)s->rows[i]=0;
+        /* Explicit destination bound also holds after GCC's loop
+         * optimization. Read only the supplied n source bytes. */
+        for(unsigned i=0;i<KOF_STRIP_ROWS;++i)
+            s->rows[i]=i<n?rows[i]:0u;
 #else
         *s=(kof_strip){.tile=tile,.x=(uint16_t)x,.y=(uint16_t)y,.mask=mask,
             .next=KOF_STRIP_END,.width=(uint8_t)width,.flip=(uint8_t)flip,.height=(uint8_t)n};
