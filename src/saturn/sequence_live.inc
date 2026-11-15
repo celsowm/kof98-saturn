@@ -36,6 +36,12 @@ volatile uint32_t kof_sequence_live_fix_ticks;
 #if KOF_LIVE_FIX_REUSE
 static kof_fix_snapshot fix_snapshot;
 #endif
+#ifndef KOF_LIVE_FIX_VDP2
+#define KOF_LIVE_FIX_VDP2 0
+#endif
+#if KOF_LIVE_FIX_VDP2 && !KOF_LIVE_FIX_REUSE
+#error Hybrid FIX requires independent FIX state
+#endif
 #ifndef KOF_LIVE_RANGE_SCHEDULE
 #define KOF_LIVE_RANGE_SCHEDULE 1
 #endif
@@ -419,6 +425,9 @@ static unsigned emit_live(sat_sprite_batch_window_t *win,const kof_strip_builder
       }
     return count;
 }
+#if KOF_LIVE_FIX_VDP2
+#include "sequence_live_fix.inc"
+#endif
 int main(void){
     const sat_video_config_t cfg={320,224,SAT_VIDEO_NTSC,SAT_VIDEO_INTERLACE_NONE};
     kof_sequence_stage=1;kof_sequence_clip=0;
@@ -447,6 +456,9 @@ int main(void){
     read_live(LIVE_ZOOM_OFFSET,zoom,sizeof zoom);
     read_live(LIVE_INDEX_OFFSET,tile_ids,sizeof tile_ids);
     memset(buckets,0xff,sizeof buckets);
+#if KOF_LIVE_FIX_VDP2
+    lf_init();kof_sequence_live_fix_vdp2=1;
+#endif
     sat_sprite_frame_t prefixes[4];
     for(unsigned i=0;i<4u;++i)
         SAT_PANIC_IF_ERROR(sat_sprite_frame_init_raw(&prefixes[i],(uint16_t)(atlas_base/8u),
@@ -473,13 +485,17 @@ int main(void){
             uint32_t start=sat_field_count(),draw_start=ticks();
             if(++stamp==0){for(unsigned j=0;j<LIVE_PAT_SLOTS;++j)patterns[j].stamp=0;
                 for(unsigned j=0;j<LIVE_LUT_SLOTS;++j)luts[j].stamp=0;stamp=1;}
+            unsigned fix_vdp2=0;
+#if KOF_LIVE_FIX_VDP2
+            fix_vdp2=(unsigned)lf_prepare();
+#endif
             SAT_PANIC_IF_ERROR(sat_set_clear_color(f->bg));
             SAT_PANIC_IF_ERROR(sat_begin_frame());
             sat_sprite_batch_window_t win;
-            SAT_PANIC_IF_ERROR(sat_sprite_batch_begin(&win,sprites.count+fix.count,
+            SAT_PANIC_IF_ERROR(sat_sprite_batch_begin(&win,sprites.count+(fix_vdp2?0u:fix.count),
                 SAT_SPRITE_BATCH_KEEP_PRECLIP|SAT_SPRITE_BATCH_NO_CULL));
             unsigned count=emit_live(&win,&sprites,0,prefixes);
-            count+=emit_live(&win,&fix,524288u,prefixes);
+            if(!fix_vdp2)count+=emit_live(&win,&fix,524288u,prefixes);
             sat_sprite_batch_stats_t stats;
             SAT_PANIC_IF_ERROR(sat_sprite_batch_end(&win,&stats));
             check(count==stats.submitted&&!stats.culled&&!stats.dropped&&!stats.invalid);
@@ -487,8 +503,14 @@ int main(void){
             kof_sequence_live_cache_ticks+=ticks()-draw_start;
             ++kof_sequence_live_timed_frames;
             kof_sequence_stage=4;
+#if KOF_LIVE_FIX_VDP2
+            lf_serial=sat_vdp1_list_serial()+1u;
+#endif
             SAT_PANIC_IF_ERROR(sat_end_frame());
             SAT_PANIC_IF_ERROR(sat_wait_vblank());
+#if KOF_LIVE_FIX_VDP2
+            check(!lf_serial&&!lf_count&&!lf_pal_dirty&&!kof_sequence_fix_errors);
+#endif
             kof_sequence_index=i;kof_sequence_commands=count;++kof_sequence_frames;
         }
     }
