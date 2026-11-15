@@ -115,7 +115,8 @@ def resolve_symbols(elf,build):
               'kof_sequence_live_versioned_strips','kof_sequence_live_palette_changes',
               'kof_sequence_live_epochs','kof_sequence_live_epoch_count',
               'kof_sequence_live_range_schedule','kof_sequence_live_schedule_lines',
-              'kof_sequence_live_lut_memo','kof_sequence_live_lut_memo_hits','kof_sequence_live_lut_memo_fallbacks')
+              'kof_sequence_live_lut_memo','kof_sequence_live_lut_memo_hits','kof_sequence_live_lut_memo_fallbacks',
+              'kof_sequence_live_packed_keys')
     return {k:found[k] for k in (*SYMBOLS,*optional) if k in found}
 
 def main():

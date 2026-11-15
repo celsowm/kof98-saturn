@@ -3,6 +3,11 @@
  * FIX through VDP1 too, independently of the optimized resident control. */
 #include "kof98/strip.h"
 #include "kof98/lut_memo.h"
+#include "kof98/pattern_key.h"
+#ifndef KOF_LIVE_PACKED_KEYS
+#define KOF_LIVE_PACKED_KEYS 1
+#endif
+volatile uint32_t kof_sequence_live_packed_keys;
 #ifndef KOF_LIVE_LUT_MEMO
 #define KOF_LIVE_LUT_MEMO 1
 #endif
@@ -65,10 +70,14 @@ volatile uint32_t kof_sequence_live_cache_hits,kof_sequence_live_cache_misses;
 volatile uint32_t kof_sequence_live_lut_hits,kof_sequence_live_lut_misses;
 volatile uint32_t kof_sequence_live_trace_fields,kof_sequence_live_lspc_fields,kof_sequence_live_draw_fields;
 volatile uint32_t kof_sequence_live_frame_count;
+#if KOF_LIVE_PACKED_KEYS
+typedef kof_pattern_key pattern_key;
+#else
 typedef struct {uint32_t tile;uint16_t mask;uint8_t h,flip,rows[16];} pattern_key;
+#endif
 typedef struct {pattern_key key;uint32_t stamp;uint16_t next;uint8_t valid,opaque;} pattern_entry;
 typedef struct {uint16_t colors[16];uint32_t stamp;uint8_t valid;} lut_entry;
-_Static_assert(sizeof(pattern_key)==24u,"pattern key layout");
+_Static_assert(sizeof(pattern_key)==(KOF_LIVE_PACKED_KEYS?16u:24u),"pattern key layout");
 static pattern_entry patterns[LIVE_PAT_SLOTS];
 static lut_entry luts[LIVE_LUT_SLOTS];
 volatile uint32_t kof_sequence_live_lut_memo,kof_sequence_live_lut_memo_hits,kof_sequence_live_lut_memo_fallbacks;
@@ -229,10 +238,21 @@ static void build_strips(const seq_live_frame *f){
     kof_sequence_live_lspc_fields+=sat_field_count()-start;
 }
 static unsigned key_bucket(const pattern_key *key){
+#if KOF_LIVE_PACKED_KEYS
+    return kof_pattern_key_hash(key)&(LIVE_BUCKETS-1u);
+#else
     uint32_t h=2166136261u;
     const uint8_t *p=(const uint8_t *)(const void*)key;
     for(unsigned j=0;j<sizeof *key;++j)h=hash_byte(h,p[j]);
     return h&(LIVE_BUCKETS-1u);
+#endif
+}
+static int key_equal(const pattern_key *a,const pattern_key *b){
+#if KOF_LIVE_PACKED_KEYS
+    return kof_pattern_key_equal(a,b);
+#else
+    return !kof_memcmp(a,b,sizeof *a);
+#endif
 }
 static void raw_tile(uint32_t id,uint8_t out[128]){
     unsigned lo=0,hi=LIVE_TILE_COUNT;
@@ -245,6 +265,11 @@ static void upload_live(uint32_t off,const void *src,uint32_t bytes){
     kof_sequence_upload_bytes+=bytes;++kof_sequence_upload_runs;
 }
 static unsigned pattern_get(const kof_strip *s,unsigned bias,uint16_t *width,uint16_t *flags){
+#if KOF_LIVE_PACKED_KEYS
+    int native;
+    pattern_key key;
+    check(!kof_pattern_key_make(s,bias,&key,width,flags,&native));
+#else
     uint8_t h=0,v=0;
     const int native=kof_strip_native(s,&h,&v);
     pattern_key key={0};
@@ -253,9 +278,10 @@ static unsigned pattern_get(const kof_strip *s,unsigned bias,uint16_t *width,uin
     for(unsigned j=0;j<s->height;++j)key.rows[j]=native?(uint8_t)j:s->rows[j];
     *width=(s->width+7u)&~7u;
     *flags=native?(uint16_t)((h?0x20u:0u)|(v?0x40u:0u)):0u;
+#endif
     unsigned bucket=key_bucket(&key);
     for(uint16_t i=buckets[bucket];i!=NONE;i=patterns[i].next){
-        if(!kof_memcmp(&patterns[i].key,&key,sizeof key)){
+        if(key_equal(&patterns[i].key,&key)){
             ++kof_sequence_live_cache_hits;patterns[i].stamp=stamp;return i;
         }
     }
@@ -327,7 +353,9 @@ static unsigned emit_live(sat_sprite_batch_window_t *win,const kof_strip_builder
     for(unsigned slot=0;slot<KOF_STRIP_SLOTS;++slot)
       for(uint16_t i=b->head[slot];i!=KOF_STRIP_END;i=b->strips[i].next){
         const kof_strip *s=&b->strips[i];uint16_t width,flags;
+#if !KOF_LIVE_PACKED_KEYS
         check(kof_strip_valid(s));
+#endif
         unsigned t=pattern_get(s,bias,&width,&flags);
         if(!patterns[t].opaque)continue;
         unsigned l=lut_get(s);
@@ -377,6 +405,7 @@ int main(void){
     kof_sequence_live_epochs=KOF_LIVE_EPOCHS;
     kof_sequence_live_range_schedule=KOF_LIVE_RANGE_SCHEDULE;
     kof_sequence_live_lut_memo=KOF_LIVE_LUT_MEMO;
+    kof_sequence_live_packed_keys=KOF_LIVE_PACKED_KEYS;
     kof_sequence_live_timer_hz=sat_time_frequency_hz();
     kof_sequence_live_frame_count=sizeof seq_live_frames/sizeof seq_live_frames[0];
     for(;;){

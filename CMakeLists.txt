@@ -34,6 +34,9 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
   add_executable(test_tile_cache tests/test_tile_cache.c)
   target_link_libraries(test_tile_cache PRIVATE kof_asset_store)
   add_test(NAME tile_cache COMMAND test_tile_cache)
+  add_executable(test_pattern_key tests/test_pattern_key.c)
+  target_link_libraries(test_pattern_key PRIVATE kof_lspc_ir)
+  add_test(NAME pattern_key COMMAND test_pattern_key)
   add_executable(test_lut_memo tests/test_lut_memo.c)
   target_include_directories(test_lut_memo PRIVATE include)
   add_test(NAME lut_memo COMMAND test_lut_memo)
@@ -122,6 +125,7 @@ if(KOF_FRAME_DIR)
   libsaturn_add_disc(kof_frame_replay ROOT_FILES "${KOF_FRAME_DIR}/FRAME.BIN")
 endif()
 
+option(KOF_LIVE_PACKED_KEYS "Use compact exact pattern keys and single-pass strip validation" ON)
 option(KOF_LIVE_LUT_MEMO "Memoize raw palettes to generation-checked resident LUT slots" ON)
 option(KOF_LIVE_RANGE_SCHEDULE "Schedule only the valid control-state interval in epoch mode" ON)
 option(KOF_LIVE_EPOCHS "Build strips in constant raster-state epochs" ON)
@@ -145,6 +149,7 @@ if(KOF_SEQUENCE_DIR)
     KOF_LIVE_EPOCHS=$<BOOL:${KOF_LIVE_EPOCHS}>
     KOF_LIVE_RANGE_SCHEDULE=$<BOOL:${KOF_LIVE_RANGE_SCHEDULE}>
     KOF_LIVE_LUT_MEMO=$<BOOL:${KOF_LIVE_LUT_MEMO}>
+    KOF_LIVE_PACKED_KEYS=$<BOOL:${KOF_LIVE_PACKED_KEYS}>
     KOF_SEQUENCE_BATCH=$<BOOL:${KOF_SEQUENCE_BATCH}>
     KOF_SEQUENCE_BATCH_PRECLIP_OPT=$<BOOL:${KOF_SEQUENCE_BATCH_PRECLIP_OPT}>)
   target_include_directories(kof_sequence_replay PRIVATE "${KOF_SEQUENCE_DIR}")
