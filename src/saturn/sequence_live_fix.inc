@@ -15,6 +15,7 @@ typedef struct {uint16_t word,hi,lo;} lf_write;
 static lf_write lf_pending[LF_CELLS];
 static volatile uint32_t lf_serial,lf_count,lf_pal_dirty;
 static uint8_t lf_showing;
+volatile uint32_t kof_sequence_live_fix_map_reuse,kof_sequence_live_fix_map_reused;
 volatile uint32_t kof_sequence_fix_updates,kof_sequence_fix_swaps,kof_sequence_fix_errors;
 volatile uint32_t kof_sequence_live_fix_vdp2,kof_sequence_live_fix_vdp2_frames;
 volatile uint32_t kof_sequence_live_fix_vdp2_fallbacks,kof_sequence_live_fix_vdp2_tiles;
@@ -44,6 +45,7 @@ static void lf_swap(uint32_t serial,void *unused){
     lf_count=0;lf_pal_dirty=0;lf_serial=0;
 }
 static void lf_init(void){
+    kof_sequence_live_fix_map_reuse=KOF_LIVE_FIX_MAP_REUSE;
     memset(lf_codes,0xff,sizeof lf_codes);
     memset(scratch,0,32u); /* tile zero is the transparent fallback */
     unsigned count=1;
@@ -82,6 +84,16 @@ static void lf_init(void){
  * (which itself fails closed if the pack cannot supply the strip). */
 static int lf_prepare(void){
     check(!lf_serial&&!lf_count&&!lf_pal_dirty);
+    /* The previous frame's map and CRAM have already been published by
+     * the serial-matched swap. The snapshot equality proof covers both.
+     * No early out after fallback, even if the strip builder was reused. */
+#if KOF_LIVE_FIX_MAP_REUSE
+    if(lf_showing&&fix_reused_this_frame&&fix_snapshot.valid){
+        ++kof_sequence_live_fix_vdp2_frames;
+        ++kof_sequence_live_fix_map_reused;
+        return 1;
+    }
+#endif
     int eligible=fix_snapshot.valid;
     if(eligible)
         for(unsigned i=0;i<LF_CELLS;++i){

@@ -34,6 +34,9 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
   add_executable(test_tile_cache tests/test_tile_cache.c)
   target_link_libraries(test_tile_cache PRIVATE kof_asset_store)
   add_test(NAME tile_cache COMMAND test_tile_cache)
+  add_executable(test_strip_hash tests/test_strip_hash.c)
+  target_include_directories(test_strip_hash PRIVATE include)
+  add_test(NAME strip_hash COMMAND test_strip_hash)
   add_executable(test_zoom_memo tests/test_zoom_memo.c)
   target_include_directories(test_zoom_memo PRIVATE include)
   add_test(NAME zoom_memo COMMAND test_zoom_memo)
@@ -134,6 +137,8 @@ if(KOF_FRAME_DIR)
   libsaturn_add_disc(kof_frame_replay ROOT_FILES "${KOF_FRAME_DIR}/FRAME.BIN")
 endif()
 
+option(KOF_LIVE_FAST_HASH "Unroll exact ordered KFR2 strip hashing" OFF)
+option(KOF_LIVE_FIX_MAP_REUSE "Reuse published VDP2 map and CRAM on exact FIX state reuse" OFF)
 option(KOF_LIVE_ZOOM_MEMO "Memoize L0 vertical source rows and skip contiguous visibility checks" OFF)
 option(KOF_LIVE_FIX_VDP2 "Render constant live FIX snapshots through VDP2, fallback for raster changes" OFF)
 option(KOF_LIVE_FIX_REUSE "Build FIX on independent raster intervals and reuse exact constant frames" ON)
@@ -165,6 +170,8 @@ if(KOF_SEQUENCE_DIR)
     KOF_LIVE_FIX_REUSE=$<BOOL:${KOF_LIVE_FIX_REUSE}>
     KOF_LIVE_FIX_VDP2=$<BOOL:${KOF_LIVE_FIX_VDP2}>
     KOF_LIVE_ZOOM_MEMO=$<BOOL:${KOF_LIVE_ZOOM_MEMO}>
+    KOF_LIVE_FAST_HASH=$<BOOL:${KOF_LIVE_FAST_HASH}>
+    KOF_LIVE_FIX_MAP_REUSE=$<BOOL:${KOF_LIVE_FIX_MAP_REUSE}>
     KOF_SEQUENCE_BATCH=$<BOOL:${KOF_SEQUENCE_BATCH}>
     KOF_SEQUENCE_BATCH_PRECLIP_OPT=$<BOOL:${KOF_SEQUENCE_BATCH_PRECLIP_OPT}>)
   target_include_directories(kof_sequence_replay PRIVATE "${KOF_SEQUENCE_DIR}")

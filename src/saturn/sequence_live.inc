@@ -2,6 +2,14 @@
  * LSPC and strip coalescing execute on Master SH-2. This diagnostic draws
  * FIX through VDP1 too, independently of the optimized resident control. */
 #include "kof98/strip.h"
+#include "kof98/strip_hash.h"
+#ifndef KOF_LIVE_FAST_HASH
+#define KOF_LIVE_FAST_HASH 0
+#endif
+#ifndef KOF_LIVE_FIX_MAP_REUSE
+#define KOF_LIVE_FIX_MAP_REUSE 0
+#endif
+volatile uint32_t kof_sequence_live_fast_hash;
 #include "kof98/lut_memo.h"
 #include "kof98/pattern_key.h"
 #include "kof98/fix_state.h"
@@ -35,6 +43,9 @@ volatile uint32_t kof_sequence_live_fix_constant_frames,kof_sequence_live_fix_in
 volatile uint32_t kof_sequence_live_fix_ticks;
 #if KOF_LIVE_FIX_REUSE
 static kof_fix_snapshot fix_snapshot;
+#if KOF_LIVE_FIX_MAP_REUSE
+static uint8_t fix_reused_this_frame;
+#endif
 #endif
 #ifndef KOF_LIVE_ZOOM_MEMO
 #define KOF_LIVE_ZOOM_MEMO 0
@@ -142,17 +153,26 @@ static unsigned control_until(const uint8_t *p,const uint8_t *end,unsigned line)
     return line;
 }
 #endif
+#if !KOF_LIVE_FAST_HASH || !KOF_LIVE_PACKED_KEYS
 static uint32_t hash_byte(uint32_t h,unsigned v){return (h^(v&255u))*16777619u;}
+#endif
+#if !KOF_LIVE_FAST_HASH
 static uint32_t hash_word(uint32_t h,unsigned v){return hash_byte(hash_byte(h,v>>8),v);}
+#endif
 static uint32_t strip_hash(uint32_t h,const kof_strip_builder *b,unsigned bias){
     for(unsigned slot=0;slot<KOF_STRIP_SLOTS;++slot)
       for(uint16_t i=b->head[slot];i!=KOF_STRIP_END;i=b->strips[i].next){
-        const kof_strip *s=&b->strips[i];uint32_t tile=s->tile+bias;
+        const kof_strip *s=&b->strips[i];
+#if KOF_LIVE_FAST_HASH
+        h=kof_strip_hash_record(h,s,bias);
+#else
+        uint32_t tile=s->tile+bias;
         h=hash_word(hash_word(h,tile>>16),tile);
         h=hash_word(h,s->x);h=hash_word(h,s->y);h=hash_word(h,s->mask);
         h=hash_word(h,s->height);h=hash_word(h,s->width);h=hash_word(h,s->flip);
         for(unsigned j=0;j<16u;++j)h=hash_word(h,s->colors[j]);
         for(unsigned j=0;j<16u;++j)h=hash_byte(h,s->rows[j]);
+#endif
       }
     return h;
 }
@@ -170,6 +190,9 @@ static void build_strips(const seq_live_frame *f){
     check(!kof_strip_begin(&sprites,sprite_strips,LIVE_MAX_SPRITES));
 #if KOF_LIVE_FIX_REUSE
     unsigned fix_until=0;
+#if KOF_LIVE_FIX_MAP_REUSE
+    fix_reused_this_frame=0;
+#endif
 #else
     check(!kof_strip_begin(&fix,fix_strips,LIVE_MAX_FIX));
 #endif
@@ -209,6 +232,9 @@ static void build_strips(const seq_live_frame *f){
                 if(constant&&kof_strip_complete(&fix)&&
                    kof_fix_snapshot_equal(&fix_snapshot,live_state,pal,bios)){
                     ++kof_sequence_live_fix_reused_frames;
+#if KOF_LIVE_FIX_MAP_REUSE
+                    fix_reused_this_frame=1;
+#endif
                 }else{
                     fix_snapshot.valid=0;
                     check(!kof_strip_begin(&fix,fix_strips,LIVE_MAX_FIX));
@@ -486,6 +512,7 @@ int main(void){
     kof_sequence_live_packed_keys=KOF_LIVE_PACKED_KEYS;
     kof_sequence_live_fix_reuse=KOF_LIVE_FIX_REUSE;
     kof_sequence_live_zoom_memo=KOF_LIVE_ZOOM_MEMO;
+    kof_sequence_live_fast_hash=KOF_LIVE_FAST_HASH;
     kof_sequence_live_timer_hz=sat_time_frequency_hz();
     kof_sequence_live_frame_count=sizeof seq_live_frames/sizeof seq_live_frames[0];
     for(;;){
