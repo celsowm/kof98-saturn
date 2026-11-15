@@ -4,6 +4,7 @@
 #include "kof98/strip.h"
 #include "kof98/lut_memo.h"
 #include "kof98/pattern_key.h"
+#include "kof98/fix_state.h"
 #ifndef KOF_LIVE_PACKED_KEYS
 #define KOF_LIVE_PACKED_KEYS 1
 #endif
@@ -21,6 +22,19 @@ volatile uint32_t kof_sequence_live_packed_keys;
 #endif
 #ifndef KOF_LIVE_EPOCHS
 #define KOF_LIVE_EPOCHS 1
+#endif
+#ifndef KOF_LIVE_FIX_REUSE
+#define KOF_LIVE_FIX_REUSE 1
+#endif
+#if !KOF_LIVE_EPOCHS
+#undef KOF_LIVE_FIX_REUSE
+#define KOF_LIVE_FIX_REUSE 0
+#endif
+volatile uint32_t kof_sequence_live_fix_reuse,kof_sequence_live_fix_reused_frames;
+volatile uint32_t kof_sequence_live_fix_constant_frames,kof_sequence_live_fix_intervals;
+volatile uint32_t kof_sequence_live_fix_ticks;
+#if KOF_LIVE_FIX_REUSE
+static kof_fix_snapshot fix_snapshot;
 #endif
 #ifndef KOF_LIVE_RANGE_SCHEDULE
 #define KOF_LIVE_RANGE_SCHEDULE 1
@@ -138,7 +152,11 @@ static void build_strips(const seq_live_frame *f){
     memset(palette_versions,0,sizeof palette_versions);
 #endif
     check(!kof_strip_begin(&sprites,sprite_strips,LIVE_MAX_SPRITES));
+#if KOF_LIVE_FIX_REUSE
+    unsigned fix_until=0;
+#else
     check(!kof_strip_begin(&fix,fix_strips,LIVE_MAX_FIX));
+#endif
 #if KOF_LIVE_RANGE_SCHEDULE
     unsigned schedule_until=0;
 #endif
@@ -164,6 +182,34 @@ static void build_strips(const seq_live_frame *f){
         }
         const uint16_t *pal=live_state+KOF_LSPC_WORDS;
         check(kof_lspc_rgb555(pal[4095])==f->bg);
+#if KOF_LIVE_FIX_REUSE
+        if(y>=fix_until){
+            t=ticks();
+            fix_until=kof_fix_trace_until(p,end,y+1u,bios);
+            check(fix_until>y);
+            if(!y){
+                const int constant=fix_until==224u;
+                if(constant)++kof_sequence_live_fix_constant_frames;
+                if(constant&&kof_strip_complete(&fix)&&
+                   kof_fix_snapshot_equal(&fix_snapshot,live_state,pal,bios)){
+                    ++kof_sequence_live_fix_reused_frames;
+                }else{
+                    fix_snapshot.valid=0;
+                    check(!kof_strip_begin(&fix,fix_strips,LIVE_MAX_FIX));
+                    check(!kof_strip_push_fix_epoch(&fix,live_state,pal,palette_versions,(int)bios,fix_until));
+                    ++kof_sequence_live_fix_intervals;
+                    if(constant)kof_fix_snapshot_save(&fix_snapshot,live_state,pal,bios);
+                }
+            }else{
+                check(fix.line==y);
+                check(!kof_strip_push_fix_epoch(&fix,live_state,pal,palette_versions,(int)bios,fix_until));
+                ++kof_sequence_live_fix_intervals;
+            }
+            const uint32_t elapsed=ticks()-t;
+            kof_sequence_live_fix_ticks+=elapsed;
+            kof_sequence_live_strip_ticks+=elapsed;
+        }
+#endif
 #if KOF_LIVE_SCHEDULED
 #if KOF_LIVE_RANGE_SCHEDULE
         if(schedule_dirty||y>=schedule_until){
@@ -190,7 +236,12 @@ static void build_strips(const seq_live_frame *f){
         while(stop<224u&&(size_t)(end-p)>=6u&&
               p[0]==0u&&p[1]==anim&&p[2]==0u&&p[3]==bios&&p[4]==0u&&p[5]==0u){p+=6u;++stop;}
         t=ticks();
+#if KOF_LIVE_FIX_REUSE
+        check(stop<=fix_until);
+        check(!kof_strip_push_sprite_epoch(&sprites,&schedule,live_state,zoom,pal,palette_versions,anim,stop));
+#else
         check(!kof_strip_push_epoch(&sprites,&fix,&schedule,live_state,zoom,pal,palette_versions,anim,(int)bios,stop));
+#endif
         kof_sequence_live_strip_ticks+=ticks()-t;
         ++kof_sequence_live_epoch_count;
         for(unsigned line=y;line<stop;++line)kof_sequence_live_eval_slots+=schedule.count[line];
@@ -406,6 +457,7 @@ int main(void){
     kof_sequence_live_range_schedule=KOF_LIVE_RANGE_SCHEDULE;
     kof_sequence_live_lut_memo=KOF_LIVE_LUT_MEMO;
     kof_sequence_live_packed_keys=KOF_LIVE_PACKED_KEYS;
+    kof_sequence_live_fix_reuse=KOF_LIVE_FIX_REUSE;
     kof_sequence_live_timer_hz=sat_time_frequency_hz();
     kof_sequence_live_frame_count=sizeof seq_live_frames/sizeof seq_live_frames[0];
     for(;;){

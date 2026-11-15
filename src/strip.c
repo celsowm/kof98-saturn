@@ -122,11 +122,11 @@ static unsigned source_row(const kof_lspc_column *c,const uint8_t *z,unsigned y)
 static int selected(const kof_lspc_column *c,unsigned y){
     return (c->selected[y>>5]&kof_lspc_bit[y&31u])!=0;
 }
-int kof_strip_push_epoch(kof_strip_builder *b,kof_strip_builder *f,
+int kof_strip_push_sprite_epoch(kof_strip_builder *b,
     const kof_lspc_schedule *schedule,const uint16_t *v,const uint8_t *z,
-    const uint16_t *pal,const uint16_t versions[256],unsigned anim,int bios,unsigned end){
-    if(!b||!f||b==f||!b->strips||!f->strips||b->failed||f->failed)return -1;
-    if(!schedule||!v||!z||!pal||!versions||(bios!=0&&bios!=1)||b->line!=f->line||end<=b->line||end>224u)goto fail_epoch;
+    const uint16_t *pal,const uint16_t versions[256],unsigned anim,unsigned end){
+    if(!b||!b->strips||b->failed)return -1;
+    if(!schedule||!v||!z||!pal||!versions||end<=b->line||end>224u)goto fail_epoch;
     const unsigned first=b->line;
     for(unsigned slot=0;slot<381u;++slot){
         const kof_lspc_column *c=&schedule->columns[slot];
@@ -147,6 +147,15 @@ int kof_strip_push_epoch(kof_strip_builder *b,kof_strip_builder *f,
                           attr>>8,pal,versions,rows,n))goto fail_epoch;
         }
     }
+    b->line=(uint16_t)end;return 0;
+fail_epoch:
+    b->failed=1;return -1;
+}
+int kof_strip_push_fix_epoch(kof_strip_builder *f,const uint16_t *v,
+    const uint16_t *pal,const uint16_t versions[256],int bios,unsigned end){
+    if(!f||!f->strips||f->failed)return -1;
+    if(!v||!pal||!versions||(bios!=0&&bios!=1)||end<=f->line||end>224u)goto fail_fix;
+    const unsigned first=f->line;
     for(unsigned col=0;col<40u;++col){
         unsigned y=first;
         while(y<end){
@@ -154,13 +163,24 @@ int kof_strip_push_epoch(kof_strip_builder *b,kof_strip_builder *f,
             unsigned n=8u-row;if(n>end-y)n=end-y;
             uint8_t rows[16];for(unsigned j=0;j<n;++j)rows[j]=(uint8_t)(row+j);
             if(append_run(f,col,y,(entry&4095u)+(bios?4096u:0u),col*8u,255u,8u,0u,
-                          entry>>12,pal,versions,rows,n))goto fail_epoch;
+                          entry>>12,pal,versions,rows,n))goto fail_fix;
             y+=n;
         }
     }
-    b->line=f->line=(uint16_t)end;return 0;
-fail_epoch:
-    b->failed=f->failed=1;return -1;
+    f->line=(uint16_t)end;return 0;
+fail_fix:
+    f->failed=1;return -1;
+}
+int kof_strip_push_epoch(kof_strip_builder *b,kof_strip_builder *f,
+    const kof_lspc_schedule *schedule,const uint16_t *v,const uint8_t *z,
+    const uint16_t *pal,const uint16_t versions[256],unsigned anim,int bios,unsigned end){
+    if(!b||!f||b==f||!b->strips||!f->strips||b->failed||f->failed)return -1;
+    if(b->line!=f->line||(bios!=0&&bios!=1)||
+       kof_strip_push_sprite_epoch(b,schedule,v,z,pal,versions,anim,end)||
+       kof_strip_push_fix_epoch(f,v,pal,versions,bios,end)){
+        b->failed=f->failed=1;return -1;
+    }
+    return 0;
 }
 int kof_strip_complete(const kof_strip_builder *b){return b&&b->strips&&!b->failed&&b->line==224u;}
 int kof_strip_valid(const kof_strip *s){

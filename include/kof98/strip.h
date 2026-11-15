@@ -37,6 +37,13 @@ int kof_strip_push_versioned(kof_strip_builder*,const kof_line_ir*,const uint16_
 int kof_strip_push_epoch(kof_strip_builder *sprites,kof_strip_builder *fix,
     const kof_lspc_schedule*,const uint16_t *vram,const uint8_t *zoom,
     const uint16_t *pal,const uint16_t versions[256],unsigned anim,int bios,unsigned end);
+/* Independent epochs. FIX may advance ahead of sprites only if its map,
+ * palette and source remain constant throughout that interval. */
+int kof_strip_push_sprite_epoch(kof_strip_builder*,const kof_lspc_schedule*,
+    const uint16_t *vram,const uint8_t *zoom,const uint16_t *pal,
+    const uint16_t versions[256],unsigned anim,unsigned end);
+int kof_strip_push_fix_epoch(kof_strip_builder*,const uint16_t *vram,
+    const uint16_t *pal,const uint16_t versions[256],int bios,unsigned end);
 int kof_strip_complete(const kof_strip_builder*);
 /* Iterate head[0..380], then next: preserves slot painter order. */
 /* 1: original 16x16 pattern reusable, flips returned separately. */
