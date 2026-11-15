@@ -2,6 +2,10 @@
  * LSPC and strip coalescing execute on Master SH-2. This diagnostic draws
  * FIX through VDP1 too, independently of the optimized resident control. */
 #include "kof98/strip.h"
+#include "kof98/lut_memo.h"
+#ifndef KOF_LIVE_LUT_MEMO
+#define KOF_LIVE_LUT_MEMO 1
+#endif
 #include <saturn/time.h>
 #ifndef KOF_LIVE_SCHEDULED
 #define KOF_LIVE_SCHEDULED 1
@@ -67,6 +71,11 @@ typedef struct {uint16_t colors[16];uint32_t stamp;uint8_t valid;} lut_entry;
 _Static_assert(sizeof(pattern_key)==24u,"pattern key layout");
 static pattern_entry patterns[LIVE_PAT_SLOTS];
 static lut_entry luts[LIVE_LUT_SLOTS];
+volatile uint32_t kof_sequence_live_lut_memo,kof_sequence_live_lut_memo_hits,kof_sequence_live_lut_memo_fallbacks;
+#if KOF_LIVE_LUT_MEMO
+static kof_lut_memo lut_memo;
+static uint32_t lut_generation[LIVE_LUT_SLOTS];
+#endif
 static uint16_t buckets[LIVE_BUCKETS],victim,lut_victim;
 
 static void read_live(uint32_t off,void *dst,uint32_t n){
@@ -276,10 +285,21 @@ static unsigned pattern_get(const kof_strip *s,unsigned bias,uint16_t *width,uin
     return i;
 }
 static unsigned lut_get(const kof_strip *s){
+#if KOF_LIVE_LUT_MEMO
+    const uint16_t cached=kof_lut_memo_find(&lut_memo,s->colors,lut_generation,LIVE_LUT_SLOTS);
+    if(cached!=KOF_LUT_MEMO_NONE){
+        ++kof_sequence_live_lut_memo_hits;
+        ++kof_sequence_live_lut_hits;luts[cached].stamp=stamp;return cached;
+    }
+    ++kof_sequence_live_lut_memo_fallbacks;
+#endif
     _Alignas(4) uint16_t colors[16]={0};
     for(unsigned p=1;p<16u;++p)colors[p]=kof_lspc_rgb555(s->colors[p]);
     for(unsigned i=0;i<LIVE_LUT_SLOTS;++i)
         if(luts[i].valid&&!kof_memcmp(luts[i].colors,colors,32u)){
+#if KOF_LIVE_LUT_MEMO
+            kof_lut_memo_publish(&lut_memo,s->colors,(uint16_t)i,lut_generation,LIVE_LUT_SLOTS);
+#endif
             ++kof_sequence_live_lut_hits;luts[i].stamp=stamp;return i;
         }
     ++kof_sequence_live_lut_misses;
@@ -291,6 +311,14 @@ static unsigned lut_get(const kof_strip *s){
     check(i<LIVE_LUT_SLOTS);lut_victim=(uint16_t)((i+1u)&(LIVE_LUT_SLOTS-1u));
     upload_live(LIVE_PAT_SLOTS*128u+i*32u,colors,32u);
     memcpy(luts[i].colors,colors,32u);luts[i].valid=1;luts[i].stamp=stamp;
+#if KOF_LIVE_LUT_MEMO
+    /* Invalidate every old alias lazily, including raw palettes that
+     * converted to the same LUT. Generation zero is reserved for empty. */
+    if(++lut_generation[i]==0u){
+        memset(&lut_memo,0,sizeof lut_memo);lut_generation[i]=1u;
+    }
+    kof_lut_memo_publish(&lut_memo,s->colors,(uint16_t)i,lut_generation,LIVE_LUT_SLOTS);
+#endif
     return i;
 }
 static unsigned emit_live(sat_sprite_batch_window_t *win,const kof_strip_builder *b,unsigned bias,
@@ -348,6 +376,7 @@ int main(void){
     kof_sequence_live_versioned_strips=KOF_LIVE_VERSIONED_STRIPS;
     kof_sequence_live_epochs=KOF_LIVE_EPOCHS;
     kof_sequence_live_range_schedule=KOF_LIVE_RANGE_SCHEDULE;
+    kof_sequence_live_lut_memo=KOF_LIVE_LUT_MEMO;
     kof_sequence_live_timer_hz=sat_time_frequency_hz();
     kof_sequence_live_frame_count=sizeof seq_live_frames/sizeof seq_live_frames[0];
     for(;;){
