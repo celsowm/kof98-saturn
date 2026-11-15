@@ -185,6 +185,42 @@ int kof_strip_push_sprite_epoch_cached(kof_strip_builder *b,
 fail:
     b->failed=1;return -1;
 }
+int kof_strip_push_sprite_epoch_runs(kof_strip_builder *b,
+    const kof_lspc_schedule *schedule,const uint16_t *v,const uint8_t *z,
+    const uint16_t *pal,const uint16_t versions[256],unsigned anim,unsigned end,kof_zoom_run_memo *memo){
+    if(!b||!b->strips||b->failed)return -1;
+    if(!schedule||!v||!z||!pal||!versions||!memo||end<=b->line||end>224u)goto fail;
+    const unsigned first=b->line;
+    for(unsigned slot=0;slot<381u;++slot){
+        const kof_lspc_column *c=&schedule->columns[slot];
+        unsigned y=c->first>first?c->first:first,stop=c->last<end?c->last:end;
+        if(y>=stop)continue;
+        const unsigned contiguous=c->selected_count==(unsigned)c->last-c->first;
+        const uint16_t *map;
+        const kof_zoom_runs *runs=kof_zoom_runs_get(memo,z,c->zy,c->rows>32u,&map);
+        const unsigned offset=(16u-c->y)&511u;
+        const uint16_t *scb=v+slot*64u;
+        while(y<stop){
+            if(!contiguous&&!selected(c,y)){++y;continue;}
+            unsigned phase=(y+offset)&511u;
+            unsigned tile=map[phase]>>4,attr=scb[tile*2u+1u];
+            uint32_t code=scb[tile*2u]|((attr&0xf0u)<<12);
+            if(attr&8u)code=(code&~7u)|(anim&7u);else if(attr&4u)code=(code&~3u)|(anim&3u);
+            unsigned n=runs->length[phase];
+            if(n>stop-y)n=stop-y;
+            if(!contiguous){
+                unsigned i=1;while(i<n&&selected(c,y+i))++i;n=i;
+            }
+            const uint8_t *rows=(attr&2u?runs->flipped:runs->rows)+phase;
+            if(append_run(b,slot,y,code&0x7ffffu,c->x,c->mask,c->width,attr&1u,
+                          attr>>8,pal,versions,rows,n))goto fail;
+            y+=n;
+        }
+    }
+    b->line=(uint16_t)end;return 0;
+fail:
+    b->failed=1;return -1;
+}
 int kof_strip_push_fix_epoch(kof_strip_builder *f,const uint16_t *v,
     const uint16_t *pal,const uint16_t versions[256],int bios,unsigned end){
     if(!f||!f->strips||f->failed)return -1;

@@ -47,6 +47,11 @@ int kof_strip_push_sprite_epoch(kof_strip_builder*,const kof_lspc_schedule*,
 int kof_strip_push_sprite_epoch_cached(kof_strip_builder*,const kof_lspc_schedule*,
     const uint16_t *vram,const uint8_t *zoom,const uint16_t *pal,
     const uint16_t versions[256],unsigned anim,unsigned end,kof_zoom_memo*);
+/* Precompute source runs in the immutable L0 memo. All visibility holes,
+ * palette splits and strip-height boundaries retain the reference semantics. */
+int kof_strip_push_sprite_epoch_runs(kof_strip_builder*,const kof_lspc_schedule*,
+    const uint16_t *vram,const uint8_t *zoom,const uint16_t *pal,
+    const uint16_t versions[256],unsigned anim,unsigned end,kof_zoom_run_memo*);
 int kof_strip_push_fix_epoch(kof_strip_builder*,const uint16_t *vram,
     const uint16_t *pal,const uint16_t versions[256],int bios,unsigned end);
 int kof_strip_complete(const kof_strip_builder*);

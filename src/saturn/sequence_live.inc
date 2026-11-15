@@ -62,7 +62,16 @@ static uint8_t fix_reused_this_frame;
 #error Zoom memo requires independent sprite epochs
 #endif
 volatile uint32_t kof_sequence_live_zoom_memo,kof_sequence_live_zoom_hits,kof_sequence_live_zoom_misses;
-#if KOF_LIVE_ZOOM_MEMO
+#ifndef KOF_LIVE_ZOOM_RUNS
+#define KOF_LIVE_ZOOM_RUNS 0
+#endif
+#if KOF_LIVE_ZOOM_RUNS && !KOF_LIVE_ZOOM_MEMO
+#error Zoom runs require the vertical zoom memo
+#endif
+volatile uint32_t kof_sequence_live_zoom_runs;
+#if KOF_LIVE_ZOOM_RUNS
+static kof_zoom_run_memo zoom_run_memo;
+#elif KOF_LIVE_ZOOM_MEMO
 static kof_zoom_memo zoom_memo;
 #endif
 #ifndef KOF_LIVE_FIX_VDP2
@@ -310,7 +319,10 @@ static void build_strips(const seq_live_frame *f){
         t=ticks();
 #if KOF_LIVE_FIX_REUSE
         check(stop<=fix_until);
-#if KOF_LIVE_ZOOM_MEMO
+#if KOF_LIVE_ZOOM_RUNS
+        check(!kof_strip_push_sprite_epoch_runs(&sprites,&schedule,live_state,zoom,pal,palette_versions,anim,stop,&zoom_run_memo));
+        kof_sequence_live_zoom_hits=zoom_run_memo.base.hits;kof_sequence_live_zoom_misses=zoom_run_memo.base.misses;
+#elif KOF_LIVE_ZOOM_MEMO
         check(!kof_strip_push_sprite_epoch_cached(&sprites,&schedule,live_state,zoom,pal,palette_versions,anim,stop,&zoom_memo));
         kof_sequence_live_zoom_hits=zoom_memo.hits;kof_sequence_live_zoom_misses=zoom_memo.misses;
 #else
@@ -541,6 +553,7 @@ int main(void){
     kof_sequence_live_packed_keys=KOF_LIVE_PACKED_KEYS;
     kof_sequence_live_fix_reuse=KOF_LIVE_FIX_REUSE;
     kof_sequence_live_zoom_memo=KOF_LIVE_ZOOM_MEMO;
+    kof_sequence_live_zoom_runs=KOF_LIVE_ZOOM_RUNS;
     kof_sequence_live_fast_hash=KOF_LIVE_FAST_HASH;
     kof_sequence_live_slave_hash=KOF_LIVE_SLAVE_HASH;
 #if KOF_LIVE_SLAVE_HASH

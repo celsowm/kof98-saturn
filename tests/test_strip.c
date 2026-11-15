@@ -72,7 +72,8 @@ static int same_chain(const kof_strip_builder *a,const kof_strip_builder *b){
  return 1;
 }
 static kof_zoom_memo epoch_memo;
-static int epoch_test(void){
+static kof_zoom_run_memo epoch_runs;
+static int epoch_test(unsigned run_mode){
  kof_strip_builder a,b,af,bf;kof_line_ir ir,fi={0};
  uint16_t versions[256]={0};
  memset(epoch_vram,0,sizeof epoch_vram);memset(pal,0,sizeof pal);
@@ -107,7 +108,8 @@ static int epoch_test(void){
    }
    CHECK(!kof_strip_push(&af,&fi,pal,4096u));
   }
-  CHECK(!kof_strip_push_sprite_epoch_cached(&b,&epoch_schedule,epoch_vram,epoch_zoom,pal,versions,anim,end,&epoch_memo));
+  if(run_mode)CHECK(!kof_strip_push_sprite_epoch_runs(&b,&epoch_schedule,epoch_vram,epoch_zoom,pal,versions,anim,end,&epoch_runs));
+  else CHECK(!kof_strip_push_sprite_epoch_cached(&b,&epoch_schedule,epoch_vram,epoch_zoom,pal,versions,anim,end,&epoch_memo));
   CHECK(!kof_strip_push_fix_epoch(&bf,epoch_vram,pal,versions,(int)bios,end));
   start=end;
  }
@@ -115,8 +117,37 @@ static int epoch_test(void){
  CHECK(same_chain(&a,&b)&&same_chain(&af,&bf));
  return 0;
 }
+/* A noncontiguous selected mask can appear when earlier slots exhaust the
+ * scanline quota. Exercise arbitrary holes and a raster boundary inside
+ * a long run, including a source-address wrap. */
+static int run_holes_test(void){
+ kof_strip_builder a,b;
+ uint16_t versions[256]={0};
+ memset(&epoch_schedule,0,sizeof epoch_schedule);
+ for(unsigned i=0;i<381u;++i)epoch_schedule.columns[i].first=224u;
+ kof_lspc_column *c=&epoch_schedule.columns[0];
+ c->first=0;c->last=224;c->x=5;c->mask=65535;c->width=16;c->rows=33;c->zy=255;c->y=22;
+ for(unsigned y=0;y<224u;++y)if(y%11u!=3u&&y%11u!=4u){
+   c->selected[y>>5]|=kof_lspc_bit[y&31u];++c->selected_count;
+ }
+ for(unsigned j=0;j<32u;++j){
+   epoch_vram[j*2u]=(uint16_t)(j/2u);
+   epoch_vram[j*2u+1u]=(uint16_t)((j&1u)?0x102u:0x101u);
+ }
+ CHECK(!kof_strip_begin(&a,strips,2048));CHECK(!kof_strip_begin(&b,fast_strips,2048));
+ for(unsigned start=0;start<224u;){
+  unsigned end=start+17u;if(end>224u)end=224u;
+  pal[17]^=0x8000u;++versions[1];
+  CHECK(!kof_strip_push_sprite_epoch_cached(&a,&epoch_schedule,epoch_vram,epoch_zoom,pal,versions,0,end,&epoch_memo));
+  CHECK(!kof_strip_push_sprite_epoch_runs(&b,&epoch_schedule,epoch_vram,epoch_zoom,pal,versions,0,end,&epoch_runs));
+  start=end;
+ }
+ CHECK(kof_strip_complete(&a)&&kof_strip_complete(&b)&&same_chain(&a,&b));
+ CHECK(a.spans==c->selected_count);
+ return 0;
+}
 int main(void){
- CHECK(!versioned_test());CHECK(!epoch_test());
+ CHECK(!versioned_test());CHECK(!epoch_test(0));CHECK(!epoch_test(1));CHECK(!run_holes_test());
  memset(a,0,sizeof a);memset(b,0,sizeof b);
  kof_strip_builder builder;kof_line_ir ir={0};CHECK(kof_strip_begin(&builder,strips,2048)==0);
  for(unsigned y=0;y<224;++y){
