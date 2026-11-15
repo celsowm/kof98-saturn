@@ -137,6 +137,7 @@ if(KOF_FRAME_DIR)
   libsaturn_add_disc(kof_frame_replay ROOT_FILES "${KOF_FRAME_DIR}/FRAME.BIN")
 endif()
 
+option(KOF_LIVE_SEGMENT_SCHEDULE "Schedule visibility by constant vertical coverage segments" OFF)
 option(KOF_LIVE_SLAVE_HASH "Verify completed live strips on Slave SH-2 while Master emits VDP1" OFF)
 option(KOF_LIVE_FAST_HASH "Unroll exact ordered KFR2 strip hashing" OFF)
 option(KOF_LIVE_FIX_MAP_REUSE "Reuse published VDP2 map and CRAM on exact FIX state reuse" OFF)
@@ -173,6 +174,7 @@ if(KOF_SEQUENCE_DIR)
     KOF_LIVE_ZOOM_MEMO=$<BOOL:${KOF_LIVE_ZOOM_MEMO}>
     KOF_LIVE_FAST_HASH=$<BOOL:${KOF_LIVE_FAST_HASH}>
     KOF_LIVE_SLAVE_HASH=$<BOOL:${KOF_LIVE_SLAVE_HASH}>
+    KOF_LIVE_SEGMENT_SCHEDULE=$<BOOL:${KOF_LIVE_SEGMENT_SCHEDULE}>
     KOF_LIVE_FIX_MAP_REUSE=$<BOOL:${KOF_LIVE_FIX_MAP_REUSE}>
     KOF_SEQUENCE_BATCH=$<BOOL:${KOF_SEQUENCE_BATCH}>
     KOF_SEQUENCE_BATCH_PRECLIP_OPT=$<BOOL:${KOF_SEQUENCE_BATCH_PRECLIP_OPT}>)

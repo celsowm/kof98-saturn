@@ -96,7 +96,7 @@ static int epoch_test(void){
   unsigned anim=start&7u,bios=(start/60u)&1u;
   epoch_vram[0x8400u+3u]=(uint16_t)(((start+304u)&511u)<<7);
   epoch_vram[4u]=(uint16_t)start;pal[17]^=0x4000u;++versions[1];
-  CHECK(!kof_lspc_schedule_build_range(&epoch_schedule,epoch_vram,KOF_LSPC_WORDS,start,end));
+  CHECK(!kof_lspc_schedule_build_segments(&epoch_schedule,epoch_vram,KOF_LSPC_WORDS,start,end,0));
   for(unsigned y=start;y<end;++y){
    CHECK(!kof_lspc_line(epoch_vram,KOF_LSPC_WORDS,epoch_zoom,sizeof epoch_zoom,anim,y,(int)bios,&ir));
    CHECK(!kof_strip_push(&a,&ir,pal,4096u));fi.count=40;

@@ -32,8 +32,16 @@ static int equal_ir(const kof_line_ir *a,const kof_line_ir *b){
  }
  return 1;
 }
-static int range_equal(unsigned first,unsigned end){
- if(kof_lspc_schedule_build_range(&range_schedule,v,KOF_LSPC_WORDS,first,end))return 0;
+static int range_equal(unsigned first,unsigned end,unsigned segmented){
+ unsigned segments=0;
+ if(segmented){
+  if(kof_lspc_schedule_build_segments(&range_schedule,v,KOF_LSPC_WORDS,first,end,&segments)||!segments||segments>end-first)return 0;
+ }else if(kof_lspc_schedule_build_range(&range_schedule,v,KOF_LSPC_WORDS,first,end))return 0;
+ for(unsigned n=0;n<381u;++n){
+  const kof_lspc_column *c=&range_schedule.columns[n];unsigned count=0;
+  for(unsigned y=first;y<end;++y)if(c->first<=y&&y<c->last&&(c->selected[y>>5]&kof_lspc_bit[y&31u]))++count;
+  if(c->selected_count!=count)return 0;
+ }
  for(unsigned y=first;y<end;++y){
   if(schedule.count[y]!=range_schedule.count[y])return 0;
   unsigned j=0;
@@ -60,7 +68,7 @@ int main(void){kof_line_ir o,fast;CHECK(kof_lspc_line(v,KOF_LSPC_WORDS,z,sizeof 
   CHECK(!kof_lspc_schedule_build(&schedule,v,KOF_LSPC_WORDS));
   for(unsigned start=0;start<224u;){
    unsigned end=start+1u+((start+scenario*17u)%45u);if(end>224u)end=224u;
-   CHECK(range_equal(start,end));start=end;
+   CHECK(range_equal(start,end,0));CHECK(range_equal(start,end,1));start=end;
   }
   for(unsigned line=0;line<224;line++){uint32_t a[320]={0},b[320]={0};unsigned evaluated;CHECK(kof_lspc_line(v,KOF_LSPC_WORDS,z,sizeof z,scenario,line,scenario&1,&o)==0);CHECK(!kof_lspc_line_scheduled(&schedule,v,KOF_LSPC_WORDS,z,sizeof z,scenario,line,scenario&1,&fast));CHECK(equal_ir(&o,&fast));reference(line,scenario,a,&evaluated);replay(&o,b);CHECK(evaluated==o.evaluated);CHECK(!memcmp(a,b,sizeof a));for(unsigned j=0;j<o.count;j++){CHECK(o.sprites[j].x+o.sprites[j].width<=320);if(j)CHECK(o.sprites[j-1].slot<o.sprites[j].slot);}for(unsigned col=0;col<40;col++){unsigned e=v[0x7000+32*col+(line+16)/8];CHECK(o.fix[col].tile==(e&4095u)&&o.fix[col].palette==(e>>12)&&o.fix[col].row==((line+16)&7));}}
  }
@@ -72,6 +80,7 @@ int main(void){kof_line_ir o,fast;CHECK(kof_lspc_line(v,KOF_LSPC_WORDS,z,sizeof 
   v[0x8000u+i]=0xfffu;v[0x8400u+i]=(uint16_t)((i<100u?400u:i%320u)<<7);
  }
  CHECK(!kof_lspc_schedule_build(&schedule,v,KOF_LSPC_WORDS));
+ CHECK(range_equal(0,224,1));
  for(unsigned line=0;line<224u;++line){
   if(line%13u==0){
    unsigned n=(random32()>>16)%381u;
@@ -79,6 +88,7 @@ int main(void){kof_line_ir o,fast;CHECK(kof_lspc_line(v,KOF_LSPC_WORDS,z,sizeof 
    v[0x8000u+n]=(uint16_t)(random32()>>16);
    v[0x8400u+n]=(uint16_t)(random32()>>16);
    CHECK(!kof_lspc_schedule_build(&schedule,v,KOF_LSPC_WORDS));
+   CHECK(range_equal(line,224,1));
   }
   v[(line*131u)%0x6000u]=(uint16_t)(random32()>>16);
   v[0x7000u+(line%40u)*32u+(line+16u)/8u]=(uint16_t)(random32()>>16);

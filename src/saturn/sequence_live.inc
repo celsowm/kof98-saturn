@@ -71,12 +71,19 @@ static kof_zoom_memo zoom_memo;
 #if KOF_LIVE_FIX_VDP2 && !KOF_LIVE_FIX_REUSE
 #error Hybrid FIX requires independent FIX state
 #endif
+#ifndef KOF_LIVE_SEGMENT_SCHEDULE
+#define KOF_LIVE_SEGMENT_SCHEDULE 0
+#endif
+volatile uint32_t kof_sequence_live_segment_schedule,kof_sequence_live_schedule_segments;
 #ifndef KOF_LIVE_RANGE_SCHEDULE
 #define KOF_LIVE_RANGE_SCHEDULE 1
 #endif
 #if KOF_LIVE_RANGE_SCHEDULE && !KOF_LIVE_EPOCHS
 #undef KOF_LIVE_RANGE_SCHEDULE
 #define KOF_LIVE_RANGE_SCHEDULE 0
+#endif
+#if KOF_LIVE_SEGMENT_SCHEDULE && !KOF_LIVE_RANGE_SCHEDULE
+#error Segmented schedule requires range schedule
 #endif
 volatile uint32_t kof_sequence_live_range_schedule,kof_sequence_live_schedule_lines;
 #if KOF_LIVE_EPOCHS && (!KOF_LIVE_SCHEDULED || !KOF_LIVE_VERSIONED_STRIPS)
@@ -275,7 +282,13 @@ static void build_strips(const seq_live_frame *f){
             t=ticks();
             schedule_until=control_until(p,end,y+1u);
             check(schedule_until>y);
+#if KOF_LIVE_SEGMENT_SCHEDULE
+            unsigned segments;
+            check(!kof_lspc_schedule_build_segments(&schedule,live_state,KOF_LSPC_WORDS,y,schedule_until,&segments));
+            kof_sequence_live_schedule_segments+=segments;
+#else
             check(!kof_lspc_schedule_build_range(&schedule,live_state,KOF_LSPC_WORDS,y,schedule_until));
+#endif
             kof_sequence_live_schedule_lines+=schedule_until-y;
             kof_sequence_live_schedule_ticks+=ticks()-t;
             ++kof_sequence_live_schedule_builds;schedule_dirty=0;
@@ -523,6 +536,7 @@ int main(void){
     kof_sequence_live_versioned_strips=KOF_LIVE_VERSIONED_STRIPS;
     kof_sequence_live_epochs=KOF_LIVE_EPOCHS;
     kof_sequence_live_range_schedule=KOF_LIVE_RANGE_SCHEDULE;
+    kof_sequence_live_segment_schedule=KOF_LIVE_SEGMENT_SCHEDULE;
     kof_sequence_live_lut_memo=KOF_LIVE_LUT_MEMO;
     kof_sequence_live_packed_keys=KOF_LIVE_PACKED_KEYS;
     kof_sequence_live_fix_reuse=KOF_LIVE_FIX_REUSE;

@@ -34,6 +34,11 @@ int kof_lspc_schedule_build(kof_lspc_schedule*,const uint16_t *vram,uint32_t wor
  * within this interval while SCB2/3/4 remain unchanged. */
 int kof_lspc_schedule_build_range(kof_lspc_schedule*,const uint16_t *vram,
     uint32_t words,unsigned first,unsigned end);
+/* Same epoch-only contract as build_range; partitions lines at column
+ * coverage boundaries before applying the first-96 limit. If non-null,
+ * segments receives the number of distinct vertical intervals. */
+int kof_lspc_schedule_build_segments(kof_lspc_schedule*,const uint16_t *vram,
+    uint32_t words,unsigned first,unsigned end,unsigned *segments);
 extern const uint32_t kof_lspc_bit[32];
 int kof_lspc_line_scheduled(const kof_lspc_schedule*,const uint16_t *vram,uint32_t words,
     const uint8_t *zoom,uint32_t zoom_bytes,unsigned anim,unsigned line,int fix_bios,kof_line_ir *out);

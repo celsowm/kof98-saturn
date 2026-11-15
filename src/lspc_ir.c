@@ -142,6 +142,106 @@ int kof_lspc_schedule_build_range(kof_lspc_schedule *s,const uint16_t *v,
     }
     return 0;
 }
+/* Every column is either vertically present for an entire segment or absent.
+ * Count the first 96 slots once per segment, including off-screen columns.
+ * Boundaries are exclusive ends; clipping and wrap use the same intervals
+ * as build_range. The scratch arrays are bounded by visible scanlines. */
+static void segment_marks(uint8_t *boundary,unsigned begin,unsigned end,
+    unsigned first,unsigned stop){
+    if(begin<first)begin=first;
+    if(end>stop)end=stop;
+    if(begin<end){boundary[begin]=1;boundary[end]=1;}
+}
+static void segment_select(kof_lspc_column *c,unsigned begin,unsigned end){
+    if(begin>=end||!c->width)return;
+    if(c->first>begin)c->first=(uint16_t)begin;
+    if(c->last<end)c->last=(uint16_t)end;
+    c->selected_count=(uint16_t)(c->selected_count+end-begin);
+    while(begin<end){
+        unsigned word=begin>>5,limit=(word+1u)*32u;
+        if(limit>end)limit=end;
+        const uint32_t lo=kof_lspc_bit[begin&31u]-1u;
+        const uint32_t hi=(limit&31u)?kof_lspc_bit[limit&31u]-1u:0xffffffffu;
+        c->selected[word]|=hi&~lo;
+        begin=limit;
+    }
+}
+static unsigned segment_range(kof_lspc_schedule *s,kof_lspc_column *c,
+    const uint8_t *next,unsigned begin,unsigned end,unsigned first,unsigned stop){
+    if(begin<first)begin=first;
+    if(end>stop)end=stop;
+    if(begin>=end)return 0;
+    unsigned filled=0,run=begin;
+    int active=0;
+    for(unsigned y=begin;y<end;){
+        unsigned limit=next[y],k=s->count[y];
+        if(k<96u){
+            s->count[y]=(uint8_t)(k+1u);
+            if(k==95u)filled+=limit-y;
+            if(!active){run=y;active=1;}
+        }else if(active){
+            segment_select(c,run,y);active=0;
+        }
+        y=limit;
+    }
+    if(active)segment_select(c,run,end);
+    return filled;
+}
+int kof_lspc_schedule_build_segments(kof_lspc_schedule *s,const uint16_t *v,
+    uint32_t words,unsigned first,unsigned stop,unsigned *segments){
+    if(!s||!v||words<KOF_LSPC_WORDS||first>=stop||stop>224u)return -1;
+    uint8_t boundary[225]={0},next[225];
+    boundary[first]=boundary[stop]=1;
+    unsigned x=0,y=0,rows=0,zy=0,zx=0;
+    /* Decode all sticky controls exactly once; keep only intervals touching
+     * this window. Even invisible horizontal geometry contributes marks. */
+    for(unsigned n=0;n<381u;++n){
+        kof_lspc_column *c=&s->columns[n];
+        c->first=224u;c->last=0u;c->selected_count=0u;c->rows=0;
+        unsigned ctl=v[0x8200u+n],zoom=v[0x8000u+n];
+        if(ctl&64u){x=(x+zx+1u)&511u;zx=(zoom>>8)&15u;}
+        else{y=512u-(ctl>>7);x=v[0x8400u+n]>>7;zy=zoom&255u;zx=(zoom>>8)&15u;rows=ctl&63u;}
+        if(!rows)continue;
+        unsigned begin=(y-16u)&511u,end=begin+16u*(rows>32u?32u:rows);
+        if(!(begin<stop&&end>first)&&!(end>512u&&end-512u>first))continue;
+        unsigned px=x,mask=0,left=0,width=0;
+        if(x+zx<320u){mask=masks[zx];left=x;width=zx+1u;}
+        else if(x<320u||x+zx>=512u){
+            unsigned bit=1u;
+            for(unsigned i=0;i<16u;++i,bit<<=1)if(masks[zx]&bit){
+                if(px<320u){if(!width)left=px;mask|=bit;++width;}
+                px=(px+1u)&511u;
+            }
+        }
+        c->x=(uint16_t)left;c->mask=(uint16_t)mask;c->y=(uint16_t)y;
+        c->width=(uint8_t)width;c->rows=(uint8_t)rows;c->zy=(uint8_t)zy;
+        for(unsigned i=0;i<7u;++i)c->selected[i]=0;
+        segment_marks(boundary,begin,end,first,stop);
+        if(end>512u)segment_marks(boundary,0,end-512u,first,stop);
+    }
+    unsigned count=0,prev=first;
+    s->count[first]=0;
+    for(unsigned line=first+1u;line<=stop;++line)if(boundary[line]){
+        next[prev]=(uint8_t)line;++count;prev=line;
+        if(line<stop)s->count[line]=0;
+    }
+    if(segments)*segments=count;
+    unsigned filled=0;
+    for(unsigned n=0;n<381u&&filled<stop-first;++n){
+        kof_lspc_column *c=&s->columns[n];
+        if(!c->rows)continue;
+        unsigned begin=(c->y-16u)&511u,end=begin+16u*(c->rows>32u?32u:c->rows);
+        if(end>512u)filled+=segment_range(s,c,next,0,end-512u,first,stop);
+        filled+=segment_range(s,c,next,begin,end,first,stop);
+    }
+    /* Expand only the final evaluated counts for existing diagnostics. */
+    for(unsigned line=first;line<stop;){
+        unsigned limit=next[line],k=s->count[line];
+        for(unsigned i=line+1u;i<limit;++i)s->count[i]=(uint8_t)k;
+        line=limit;
+    }
+    return 0;
+}
 int kof_lspc_line_scheduled(const kof_lspc_schedule *s,const uint16_t *v,uint32_t words,
     const uint8_t *z,uint32_t nz,unsigned anim,unsigned line,int bios,kof_line_ir *o){
     if(!s||!v||words<KOF_LSPC_WORDS||!z||nz!=KOF_ZOOM_BYTES||line>=224u||!o||(bios!=0&&bios!=1))return -1;

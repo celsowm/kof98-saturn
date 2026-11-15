@@ -126,7 +126,7 @@ def resolve_symbols(elf,build):
               'kof_sequence_live_fast_hash','kof_sequence_live_fix_map_reuse','kof_sequence_live_fix_map_reused',
               'kof_sequence_live_slave_hash','kof_sequence_live_slave_hash_jobs','kof_sequence_live_slave_hash_done',
               'kof_sequence_live_slave_hash_wait_ticks','kof_sequence_live_slave_hash_elapsed_ticks',
-              'kof_sequence_live_slave_hash_errors')
+              'kof_sequence_live_slave_hash_errors','kof_sequence_live_segment_schedule','kof_sequence_live_schedule_segments')
     return {k:found[k] for k in (*SYMBOLS,*optional) if k in found}
 
 def main():
