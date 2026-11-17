@@ -2,6 +2,50 @@
 
 The full AOT program has not been shown to fit the Saturn. This candidate selects whole generated functions using measured SH-2 symbol sizes and desktop guest-instruction coverage. No executable code is placed in the mandatory 4 MiB data cartridge. The host still uses Musashi for unselected entry points and RAM code; the target's interpreter size/speed remains an independent gate.
 
+## WRAM architecture redesign — two negative results (2026-11-17)
+
+The task called for streaming renderer/overlay state so native recompiled
+guest-WRAM code could run in the unified hybrid. Two concrete attempts were
+made and **both failed**, with the evidence below. They were reverted; the
+committed baseline (`da0cdb2`) is unchanged.
+
+**(1) Static WRAM-native slice cannot cover the guest's runtime PCs.** The
+hybrid's `ng_insn_hook` histogram (`local/ymir/insnhist`) shows 7,643,919 guest
+instructions in `$100000-$13FFFF` over 12k fields. I extracted 66 native
+routines / 128 map entries from `game_recomp_table.c` for the WRAM window,
+linked them (`local/ymir/wram_native_*`), and instrumented lookup with named
+volatile counters. Result (`local/ymir/wramnat-diag`, 12k fields): **108,269
+WRAM-window lookups but only 1 native dispatch hit**; binary hash/recomp-block
+count unchanged (`blocks=27,374`). The reason is decisive: the exact PCs
+reaching lookup are `$100078, $1000d4, $100176, … $1008b0` (32 sampled in
+`local/ymir/wramnat-diag/samples3.bin`), but **none of the generated recomp
+tables contain those PCs** — only `$100000` (a 5-instruction BIOS "rescue"
+routine, `src/ng/wram_rescue_routines.c`). The static recompiler analyzed the
+P-ROM image, not the bytes the guest copies to WRAM at runtime. A static native
+slice is therefore fundamentally unable to accelerate this code; doing so
+would require a runtime SH-2 recompiler, which is out of scope.
+
+**(2) Full native recomp + live audio does not fit WRAM-H.** The isolated
+real-time bench is real-time precisely because it links the full native recomp
+(`resident_routines.c` ~451 KiB + BIOS recomp) and runs `NG_BOOT_RECOMP_ONLY`
+(no Musashi): evidence `local/ymir/wrapfix-long` = 0.9973x, 9.9M native blocks,
+`bad=0`, full game (502M guest instructions). Its app is already 973,360 bytes
+against the 983,040 limit. Adding the live Z80/YM2610 audio subsystem to that
+target overflows `WRAMH` by **460,020 bytes** (linker error, `build-resaudio`).
+The cart-overlay alternative (`kof_ng_rawcode_bench`, recomp pages streamed
+from disc, renderer linked) is only 599,220 bytes and would fit audio, but its
+`NG_BOOT_RECOMP_ONLY` guest never reaches the game's gameplay sprites: every
+run draws **0 strips** (`local/ymir/rawcode-render*`, `rawcode-wram-rescue`:
+frame 778 but `kof_live_draw_strips=0`, `ng_boot_cart_instr=0`), and the
+DENSE_ONLY variant halts at frame 3.
+
+**Conclusion:** a single build that is simultaneously real-time, renders the
+gameplay frame, and plays live game audio is **not achievable** by these
+techniques. It needs a runtime recompiler for the guest-written WRAM code, or
+a new memory layout that executes recompiled code from the mandatory cart —
+both substantially larger efforts. Physical-console timing/capture evidence
+additionally requires user-provided Saturn hardware.
+
 ## Collect local evidence
 
 Use the unoptimized full paged host baseline in HOST_PAGED_ORACLE.md, without dedup/flags/cycles/regcache. The host-only profiler is opt-in via KOF_NATIVE_PROFILE (output CSV filename). Run independent boot/menu, attract, team, practice, boss and varied fight scenarios, each with a unique path. Use the original headless input scripts and verified local AES dumps.
