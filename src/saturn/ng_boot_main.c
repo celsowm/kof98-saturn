@@ -342,12 +342,20 @@ int main(void) {
             if (sat_begin_frame() != SAT_OK) fail(__LINE__);
             ng_boot_run_frames(1);
 
+            /* Strip decoding walks all 224 LSPC lines and dominates the SH-2
+             * profile (~32% of instructions). The result is only used at the
+             * single RENDER_FRAME, so decode only when that frame is near —
+             * the same gating the rawcode bench uses. Guest behaviour is
+             * unchanged (this is probe/render-side work, not emulation). */
             uint32_t h = 0;
-            uint32_t n = ng_live_sprite_strips(ng_boot_vram(), g_zoom, ng_boot_pal(),
-                                               ng_boot_anim(), ng_boot_fix_bios(), &h);
-            kof_live_sprite_count = n;
-            kof_live_sprite_hash = (n == 0xFFFFFFFFu) ? 0u : h;
-            kof_live_ng_cycles = ng_boot_cycles_lo();
+            uint32_t n = 0xFFFFFFFFu;
+            if (ng_boot_frames + 2u >= RENDER_FRAME) {
+                n = ng_live_sprite_strips(ng_boot_vram(), g_zoom, ng_boot_pal(),
+                                          ng_boot_anim(), ng_boot_fix_bios(), &h);
+                kof_live_sprite_count = n;
+                kof_live_sprite_hash = (n == 0xFFFFFFFFu) ? 0u : h;
+                kof_live_ng_cycles = ng_boot_cycles_lo();
+            }
 
             if (ng_boot_frames == RENDER_FRAME && n != 0xFFFFFFFFu) {
                 kof_emit_stats stats;

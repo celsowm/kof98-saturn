@@ -1093,6 +1093,28 @@ after all `ng_boot.c` changes: rebuilt `kof_ng_boot` at 30k fields draws
 matching the historical `live-strip-5` evidence — so the renderer and my
 cycle/slow-write changes are intact. Full combination remains open.
 
+**Hybrid SH-2 profile + strip-decode gating (2026-11-17):** the unified build
+was profiled with `--debug-profile` (`tools/sh2_profile_symbols.py`, window
+fields 7000–8500). Before gating, `kof_lspc_line` alone was **32.5%** of SH-2
+instructions, with `kof_strip_push` 5.7% and libgcc division (`div0` +
+`__udivsi3`) ~6% — because `ng_boot_main.c` called `ng_live_sprite_strips()`
+(decoding all 224 LSPC lines and hashing) on **every** guest frame even though
+the result is only used at `RENDER_FRAME` (778). Gating it to
+`ng_boot_frames + 2 >= RENDER_FRAME` cut fields-to-frame-778 from **45k to 30k**
+(verified: `local/ymir/hybrid-gated`, frame 778, 140 strips, 726k live samples,
+same sprite hash) — a real ~33% win that does not touch guest behaviour.
+Re-profile after gating: Musashi `m68k_execute` 14.8%, YM2610 synthesis
+(ymfm FM+SSG+ADPCM) ~24%, `div0`+`__udivsi3` 10.3%, Musashi helpers
+(`exec_opcode`/`read_immediate`/`ng_insn_hook`) ~15%, Z80 ~11%. The dense
+emitter/dispatch work in the hybrid (`recomp_step` 0.9%) is already negligible.
+Tested YM2610 `MIN` fidelity (half the FM clocks, still 166 kHz output): no
+measurable speedup, reverted. **The remaining cost is architectural**: the game
+copies 11.7M instructions into WRAM and runs them on Musashi, and live YM2610
+synthesis is inherently SH-2 work. Native recomp of that guest-written code
+would need the ~192 KiB overlay page arena, which does not coexist with
+Musashi + renderer + audio in the current 1 MiB WRAM-H/L budget. So a single
+real-time build with renderer + audio is **not achieved** by these techniques.
+
 **Unified hybrid build: native logic + renderer + live game audio (2026-11-17):**
 with the game `M1.BIN` (`roms/242-s1.bin`) staged on the disc and loaded into
 the now-free `g_bios_raw` buffer (no extra Work RAM), the hybrid runs the real
