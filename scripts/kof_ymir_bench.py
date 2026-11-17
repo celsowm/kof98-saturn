@@ -59,6 +59,11 @@ TARGETS = {
     "interp": ("kof_ng_bench_interp", COMMON_SYMBOLS + INTERP_SYMBOLS),
     "recomp": ("kof_ng_bench_recomp", COMMON_SYMBOLS + RECOMP_SYMBOLS),
     "resident": ("kof_resident_bench", COMMON_SYMBOLS + RECOMP_SYMBOLS),
+    "pruned": ("kof_resident_pruned", COMMON_SYMBOLS + RECOMP_SYMBOLS),
+    "unified": ("kof_unified", COMMON_SYMBOLS + RECOMP_SYMBOLS + (
+        "kof_live_sprite_count", "kof_live_sprite_hash", "kof_live_draw_strips",
+        "kof_live_draw_native", "kof_live_draw_variants", "kof_live_draw_error",
+        "kof_ym_samples", "kof_ym_written", "kof_ym_step")),
     "rawcode": ("kof_ng_rawcode_bench", COMMON_SYMBOLS + RECOMP_SYMBOLS + (
         "ng_boot_game_loads", "ng_boot_game_faults", "ng_boot_game_evictions",
         "ng_boot_game_errors", "ng_boot_game_resident",

@@ -1,9 +1,12 @@
 # Architecture redesign — one build with real-time guest + renderer + live audio
 
-**Status: PLAN (not implemented).** This document is a concrete redesign proposal
-grounded in measured evidence collected 2026-11-17. It does not claim a playable
-port. All figures below come from local commands/reports; game-derived generated
-code stays under `local/` and is never committed.
+**Status: P0–P2 executed and passing; P3/P4 unified target built; P5 speed and
+render gates NOT met.** See `docs/REDESIGN_EXECUTION_LOG.md` for the measured
+results. The architecture redesign solved the memory blocker but the runtime
+cost of live YM2610 synthesis prevents a ~1.0× single build with these
+techniques. This document does not claim a playable port. All figures below
+come from local commands/reports; game-derived generated code stays under
+`local/` and is never committed.
 
 ## 1. Diagnosis — why the three capabilities are stuck in separate builds
 

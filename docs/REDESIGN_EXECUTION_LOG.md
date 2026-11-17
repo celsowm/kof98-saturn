@@ -1,0 +1,153 @@
+# Architecture redesign — execution log
+
+Evidence log for executing `docs/ARCHITECTURE_REDESIGN.md`. Emulator numbers
+are Ymir evidence only, never physical-console timing. All generated/profiling
+artifacts live under `local/` and are not committed.
+
+## P0 — pinned baseline (2026-11-17)
+
+### Pins (SHA-256 unless noted)
+
+| Item | Value |
+|---|---|
+| app commit | `b4533127f2550a0699ffaf48fd058691dab1f42c` |
+| upstream kof98recomp commit | `44f873a3cca3827a48fca30fa8091da746311af0` |
+| LibSaturn pin (PORTING_PLAN.md:14) | `dbc679a3ac213cbb6a975030212c96b21bd684ad` |
+| BIOS `saturn_bios_jp.bin` | `dcfef4b99605f872b6c3b6d05c045385cdea3d1b702906a0ed930df7bcb7deac` |
+| Ymir `probe.exe` | `1e32005f403840e05bbd900828603433a0a87c3b84d9ac966d9ef19153af6ba2` |
+| `local/profiles/noinput1200.csv` | `dad2a8c08c591b484361706f67f0b32b6199d5305602ce8fb600c802eefb8064` |
+| `local/profiles/fight.csv` | `20538429e048dabad6d9906d1e4d0123f23e874152ff79aac9d36ec5ee94d83f` |
+| `local/profiles/playlong.csv` | `e1e8c180189b8389c7ef40ff2ba6282eca2a73a2eb66091c1da66328f985fc69` |
+| `tests/input_script_sample.txt` | `bb76acc74101e263a4aae5770bb28dcc613f50b62faa6f6fc972faa170898d98` |
+
+### Reproduction
+
+The checked-in `build-ng/` binaries were stale (app SHA-256 `82dbef…`, built
+14:18, source mtimes 14:25). Rebuilt `kof_resident_bench` from current sources:
+
+- fresh app: 973,336 B (limit 983,040), SHA-256
+  `833dadce3420704bec05f9a85a39c138c04635c5fec9f9334910391a2a6a72fd`.
+- command: `python scripts/kof_ymir_bench.py --target resident --frames N
+  --out local/ymir/p0-repro-resident-*`.
+
+| fields | guest frames | ratio | `bad` | steady SH-2 cycles/field | evidence |
+|---:|---:|---:|---:|---:|---|
+| 3,000 | 2,013 | 0.6710× | 0 | 449,204 | `local/ymir/p0-repro-resident` (stale binary) |
+| 6,000 | 5,216 | 0.8693× | 0 | 449,204 | `local/ymir/p0-repro-resident-fresh` |
+| 30,000 | 30,718 | **1.0239×** | 0 | 449,204 | `local/ymir/p0-repro-resident-30k` |
+
+The short-run ratio is depressed by one-off boot/attract setup; at 30k fields
+the current source is real-time (slightly above 1.0×). This reproduces the
+historical ~1.0× figure in `local/ymir/wrapfix-long/summary.json` (0.9973×)
+with current sources and is the baseline for P2. `ng_boot_recomp_interp=0`,
+`ng_boot_recomp_bad=0` in every run.
+
+## P1 — executed-routine profiles and the native working set
+
+Tools added (source only; no generated code committed):
+- `tools/sh2_executed_routines.py`: resolve a Ymir `--debug-profile` PC CSV
+  against the matching SH-2 ELF into a routine-name list + histogram. (The
+  profile `pc` column is **decimal**, e.g. `100679680` = `0x06004000`.)
+- `tools/make_pruned_native.py`: select already-generated routine bodies and
+  rebuild the resident + BIOS dispatch tables (P2).
+
+### Native working set (authoritative for the bench workload)
+
+| Profile | SH-2 instructions traced | executed routines | bytes |
+|---|---:|---:|---:|
+| old binary, 3k fields (`resprof`) | ~1.0e9 | 94 | 105 KiB |
+| old binary, 12k fields (`resprof12k`) | 3,967,753,867 | 94 | 107,576 B |
+| **fresh binary, 12k fields (`p1-prof`)** | 3,967,464,498 | **94** | **107,576 B** |
+
+The two 94-routine lists are byte-identical (SHA-256
+`62421b4b6cb0b2da5cd430a255acbfc011b08fa52aab4f068f88493a02c83757`). The set
+is stable across rebuilds and run lengths; 585 of 679 linked routines (818 KiB)
+never execute in this workload. Routine families executed: 8 dense handlers,
+83 `r_*` game routines, 2 `bios_r_*`, 1 `wram_r_100000`.
+
+### Coverage analysis (R1 / P6 — honest limitation)
+
+The host-oracle guest-PC profiles cover more modes than the bench's no-input
+attract loop:
+
+| profile | PCs | mapped routines | routines with ≥100 hits |
+|---|---:|---:|---:|
+| `noinput1200.csv` | 524 | 381 | 139 |
+| `fight.csv` | 2,485 | 1,756 | 421 |
+| `playlong.csv` | 3,617 | 2,401 | 588 |
+| union | — | 2,411 | — |
+
+Full-game native coverage therefore needs **2,411 routines**, which cannot fit
+in 1 MiB WRAM-H. This is the documented reason for P6 phase overlays (cart
+*data* staged into WRAM-H at safe points). The current baseline build feeds no
+pad input (`resident_bench_main.c` never calls `sat_input_poll`), so all three
+capability builds — including the 140-strip hybrid — execute the same no-input
+attract workload; the 94-routine set is the correct native set for the P2–P5
+unified gate. A dispatch miss in any other mode is fail-loud (`bad++`, guest
+halted), never silently masked.
+
+## P2 — pruned RECOMP_ONLY target (PASS)
+
+`tools/make_pruned_native.py` selected 94 routines (85 generated bodies copied,
+9 dense handlers + 1 WRAM rescue linked from hand-written sources) and rebuilt
+both dispatch tables:
+
+| artifact | full | pruned |
+|---|---:|---:|
+| native `.text` | ~904 KiB | **52,324 B** |
+| resident map entries | 532 | 167 |
+| BIOS table entries | 1,150 | 4 |
+| app `.bin` | 973,336 B | **133,376 B** |
+| WRAM-H headroom (to 16 KiB stack guard) | 21,720 B | **862,472 B** |
+
+Build: `cmake -DKOF_BUILD_PRUNED_BENCH=ON`, target `kof_resident_pruned` (+ the
+`kof_resident_pruned_disc` phony for the CUE). Ymir 30k fields
+(`local/ymir/p2-pruned-30k`): **1.0233×**, `bad=0`, `interp=0`, 30,699 guest
+frames. Per-frame guest work is identical to the full bench within 0.003%
+(instructions 16,797.27 vs 16,797.79; VRAM 3,342.22 vs 3,342.33; same final
+PC `0xC10990`). The 19-frame total difference is SH-2 I-cache/layout speed, not
+guest-state divergence. 39/39 ROM-free host tests pass.
+
+## P3/P4/P5 — unified target (build achieved; speed/render gates NOT met)
+
+`src/saturn/unified_main.c` + `KOF_BUILD_UNIFIED` produce a **single** target
+(`kof_unified`) that links all three capabilities: the pruned RECOMP_ONLY
+native guest, the gated LSPC→VDP1 strip renderer, and the live Z80/YM2610
+driver feeding one SCSP mono stream. Build command:
+`cmake -DKOF_BUILD_PRUNED_BENCH=ON -DKOF_BUILD_UNIFIED=ON`, targets
+`kof_unified` and `kof_unified_disc`.
+
+- app: **210,516 B** (limit 983,040).
+- `.text` 210,016 B, `.bss` 350,212 B; `__bss_end=0x0608CE34` → **455,116 B
+  (≈444 KiB) WRAM-H headroom** above the 16 KiB stack guard. WRAM-L within
+  guard. 4 MiB cart is data-only; all native code is WRAM-H resident.
+- Ymir 16k fields (`local/ymir/p5-unified-long`): guest 778 frames,
+  `bad=0`, `interp=0`, **605,353 YM2610 samples generated and written to
+  SCSP**, `kof_ym_step=3`, no panic. This is the first single binary with
+  native logic + renderer code + live game audio linked and running.
+
+**Gates that FAIL (honest):**
+1. **Speed:** 0.0486× (778 guest frames / 16,000 fields), far below the ~1.0×
+   gate. SH-2 profile (`local/ymir/p5-prof`, 619M instructions): ymfm FM 9.9%
+   + SSG 10.5% + ADPCM 2.3% + resampler 1.9% ≈ 24%; Z80
+   `exec_opcode`/`z_read`/`z80_step`/`audio_sync`/timers ≈ 22%; CD init ≈ 17%;
+   `__udivsi3` 4.5%. Live YM2610 synthesis is inherently SH-2 work — MIN
+   fidelity was already measured as no speedup (`X2_NATIVE_RESIDENCY.md:1154`).
+2. **Renderer:** at frame 778, `kof_live_sprite_count=0`, `draw_strips=0`
+   (FNV-basis hash = empty snapshot), `draw_error=0`. The native path's guest
+   state at guest frame 778 differs from the interpreter path (timing-driven
+   divergence documented in R3), so the frame the tile pack was built from
+   contains no LSPC sprites here. Reaching a gameplay frame with sprites would
+   need a later render frame and a fresh tile pack for the native state.
+
+**Conclusion:** the redesign solved the *memory* blocker (842 KiB free in the
+pruned core; unified links with 444 KiB free), but the *runtime* cost of live
+YM2610 synthesis is the new hard ceiling for a ~1.0× single build. P5 is not
+met. This is emulator evidence only; P7 physical-console timing remains
+blocked on user-supplied hardware.
+
+Final clean-source binaries (diagnostic counters removed):
+`kof_resident_pruned.app.bin` SHA-256 `ea6ce319…` (the P2 evidence binary),
+`kof_unified.app.bin` SHA-256 `60bf98c5…`. The latter was re-verified for
+1500 fields (`local/ymir/p5-final-check`): `bad=0`, `interp=0`, 19,408 live
+samples written, `kof_ym_step=3`.

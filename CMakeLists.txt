@@ -791,6 +791,108 @@ if(KOF_BUILD_NG_BENCH)
     libsaturn_add_binary(kof_resident_bench MAX_BYTES 983040)
     target_link_libraries(kof_resident_bench PRIVATE kof_saturn_assets)
     libsaturn_add_disc(kof_resident_bench ALL ROOT_FILES "${bios_stage}" "${p1_stage}" "${p2_stage}")
+
+    # Profile-pruned native core (architecture redesign P2). Same RECOMP_ONLY
+    # guest as kof_resident_bench, but the two generated recomp blobs and their
+    # dispatch tables are replaced by the pruned selection produced locally by
+    # tools/make_pruned_native.py. Dense handlers and the binary-search + tagged
+    # cache dispatch are unchanged. Local build artifact only; no source of
+    # game-derived code is committed.
+    option(KOF_BUILD_PRUNED_BENCH "Build the profile-pruned RECOMP_ONLY bench" OFF)
+    if(KOF_BUILD_PRUNED_BENCH)
+      set(KOF_PRUNED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/local/pruned" CACHE PATH "Local pruned native artifacts")
+      foreach(_pf pruned_native.c pruned_resident_map.c pruned_bios_table.c)
+        if(NOT EXISTS "${KOF_PRUNED_DIR}/${_pf}")
+          message(FATAL_ERROR "Missing ${KOF_PRUNED_DIR}/${_pf}; run tools/make_pruned_native.py first")
+        endif()
+      endforeach()
+      add_executable(kof_resident_pruned
+        src/saturn/resident_bench_main.c src/ng/ng_boot.c src/ng/ng_boot_stats.c src/ng/ng_boot_recomp.c src/ng/libgcc_stubs.c
+        src/saturn/resident_dispatch.c
+        src/ng/dense_routines.c src/ng/wram_rescue_routines.c
+        "${KOF_PRUNED_DIR}/pruned_native.c"
+        "${KOF_PRUNED_DIR}/pruned_resident_map.c"
+        "${KOF_PRUNED_DIR}/pruned_bios_table.c")
+      target_include_directories(kof_resident_pruned BEFORE PRIVATE
+        "${KOF_PRUNED_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/local/ymir/c32"
+        "${CMAKE_CURRENT_SOURCE_DIR}/local/ng_recomp_game256"
+        "${CMAKE_CURRENT_SOURCE_DIR}/build-ng/ng_bench_gen"
+        src/ng src/ng/shim src/saturn include "${mus}" "${m68kgen}" "${nginc}")
+      target_compile_definitions(kof_resident_pruned PRIVATE
+        KOF_NG_SATURN=1 NG_BOOT_RECOMP=1 NG_BOOT_RECOMP_ONLY=1
+        KOF_32BIT_CYCLES=1)
+      target_compile_options(kof_resident_pruned PRIVATE -w)
+      libsaturn_configure_executable(kof_resident_pruned)
+      libsaturn_add_binary(kof_resident_pruned MAX_BYTES 983040)
+      target_link_libraries(kof_resident_pruned PRIVATE kof_saturn_assets)
+      libsaturn_add_disc(kof_resident_pruned ALL ROOT_FILES "${bios_stage}" "${p1_stage}" "${p2_stage}")
+
+      # Unified target (architecture redesign P3/P4/P5): the SAME pruned
+      # RECOMP_ONLY native guest plus the validated gated renderer and the
+      # live Z80/YM2610 audio path. unified_main.c is a flat-out bench main
+      # based on the validated ng_rawcode_bench_main.c: guest frames advance
+      # as fast as the SH-2 can execute them, VDP1 work is gated to the render
+      # frame, and audio is serviced from the core slice hook. The 4 MiB cart
+      # stays data-only; all executable native code is WRAM-H resident.
+      option(KOF_BUILD_UNIFIED "Build unified native + renderer + live audio target" OFF)
+      if(KOF_BUILD_UNIFIED)
+        set(KOF_AUDIO_SOURCES_U
+          src/audio_shims/audio_saturn.c "${ngsrc}/ym2610.cpp"
+          "${up}/neogeorecomp/ext/ymfm/src/ymfm_opn.cpp"
+          "${up}/neogeorecomp/ext/ymfm/src/ymfm_adpcm.cpp"
+          "${up}/neogeorecomp/ext/ymfm/src/ymfm_ssg.cpp"
+          "${up}/neogeorecomp/ext/ymfm/src/ymfm_misc.cpp"
+          "${up}/neogeorecomp/ext/z80/z80.c"
+          src/audio_shims/shim_alloc.c src/audio_shims/shim_alloc.cpp)
+        add_executable(kof_unified
+          src/saturn/unified_main.c src/ng/ng_boot.c src/ng/ng_boot_stats.c src/ng/ng_boot_recomp.c
+          src/ng/ng_live_strips.c src/ng/libgcc_stubs.c
+          src/saturn/resident_dispatch.c
+          src/ng/dense_routines.c src/ng/wram_rescue_routines.c
+          "${KOF_PRUNED_DIR}/pruned_native.c"
+          "${KOF_PRUNED_DIR}/pruned_resident_map.c"
+          "${KOF_PRUNED_DIR}/pruned_bios_table.c"
+          ${KOF_AUDIO_SOURCES_U})
+        set_source_files_properties(
+          src/audio_shims/shim_alloc.cpp "${ngsrc}/ym2610.cpp"
+          "${up}/neogeorecomp/ext/ymfm/src/ymfm_opn.cpp"
+          "${up}/neogeorecomp/ext/ymfm/src/ymfm_adpcm.cpp"
+          "${up}/neogeorecomp/ext/ymfm/src/ymfm_ssg.cpp"
+          "${up}/neogeorecomp/ext/ymfm/src/ymfm_misc.cpp"
+          PROPERTIES COMPILE_OPTIONS "-std=c++17;-fno-exceptions;-fno-rtti")
+        target_include_directories(kof_unified BEFORE PRIVATE
+          src/audio_shims "${KOF_PRUNED_DIR}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/local/ymir/c32"
+          "${CMAKE_CURRENT_SOURCE_DIR}/local/ng_recomp_game256"
+          "${CMAKE_CURRENT_SOURCE_DIR}/build-ng/ng_bench_gen")
+        target_include_directories(kof_unified PRIVATE
+          src/ng src/ng/shim src/saturn include "${mus}" "${m68kgen}" "${nginc}"
+          "${ngsrc}" "${up}/neogeorecomp/ext/ymfm/src" "${up}/neogeorecomp/ext/z80"
+          "${bgen}" "${KOF_TILE_DIR}" "${KOF_MUSIC_DIR}")
+        target_compile_definitions(kof_unified PRIVATE
+          KOF_NG_SATURN=1 NG_BOOT_RECOMP=1 NG_BOOT_RECOMP_ONLY=1 NG_BOOT_LIVE_AUDIO=1
+          LIVE_MAX_STRIPS=512 KOF_32BIT_CYCLES=1
+          MUSASHI_CNF="ng_musashi_conf_boot.h")
+        target_compile_options(kof_unified PRIVATE -w)
+        target_link_options(kof_unified PRIVATE
+          -Wl,-u,___ashldi3 -Wl,-u,___ashrdi3 -Wl,-u,___lshrdi3)
+        libsaturn_configure_executable(kof_unified)
+        libsaturn_add_binary(kof_unified MAX_BYTES 983040)
+        target_link_libraries(kof_unified PRIVATE kof_saturn_assets)
+        set(sm1_stage_u "${CMAKE_CURRENT_BINARY_DIR}/ng-unified-disc/SM1.BIN")
+        set(m1_stage_u "${CMAKE_CURRENT_BINARY_DIR}/ng-unified-disc/M1.BIN")
+        add_custom_command(OUTPUT "${sm1_stage_u}"
+          COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/ng-unified-disc"
+          COMMAND "${CMAKE_COMMAND}" -E copy "${CMAKE_CURRENT_SOURCE_DIR}/roms/sm1.sm1" "${sm1_stage_u}" VERBATIM)
+        add_custom_command(OUTPUT "${m1_stage_u}"
+          COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/ng-unified-disc"
+          COMMAND "${CMAKE_COMMAND}" -E copy "${CMAKE_CURRENT_SOURCE_DIR}/roms/242-s1.bin" "${m1_stage_u}" VERBATIM)
+        libsaturn_add_disc(kof_unified ALL ROOT_FILES
+          "${bios_stage}" "${p1_stage}" "${p2_stage}" "${l0_stage}" "${tile_stage}"
+          "${music_stage}" "${sm1_stage_u}" "${m1_stage_u}")
+      endif()
+    endif()
   endif()
 endif()
 
