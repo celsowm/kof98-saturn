@@ -83,12 +83,14 @@ def main() -> int:
     p.add_argument("--out", type=Path)
     p.add_argument("--frames", type=int, default=300)
     p.add_argument("--timeout", type=int, default=1200)
+    p.add_argument("--target", default="kof_ng_boot",
+                   help="application target name (e.g. kof_ng_hybrid_bench)")
     a = p.parse_args()
 
     build = a.build.resolve()
-    elf = build / "kof_ng_boot.elf"
-    app = build / "kof_ng_boot.app.bin"
-    disc = build / "disc/kof_ng_boot.cue"
+    elf = build / (a.target + ".elf")
+    app = build / (a.target + ".app.bin")
+    disc = build / ("disc/" + a.target + ".cue")
     bios = (a.bios or DEFAULT_BIOS).resolve()
     for f in (elf, app, disc, bios):
         if not f.is_file():

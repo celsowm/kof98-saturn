@@ -17,14 +17,10 @@ DENSE = [
     (0x000834, "dense_r_000834"),
     (0x0034EA, "dense_r_0034EA"),
     (0x00A142, "dense_r_00A142"),
-    # Guest-copied WRAM routine (jsr $100000): without these entries the
-    # recomp-only guest cannot execute BIOS-copied code and stalls before
-    # gameplay, so the renderer never sees sprites. Small + self-contained.
-    (0x100000, "wram_r_100000"),
-    (0x100004, "wram_r_100000"),
-    (0x100006, "wram_r_100000"),
-    (0x10000A, "wram_r_100000"),
-    (0x10000E, "wram_r_100000"),
+    # Guest low-RAM / WRAM code ($000000-$1FFFFF) is intentionally NOT listed:
+    # in the hybrid core those PCs fall back to the linked Musashi interpreter,
+    # which reads the live (guest-rewritten) RAM bytes. A static recomp entry
+    # for such a PC is wrong, which is what stalled the recomp-only overlay.
     (0x00C11050, "dense_r_C11050"),
     (0x00C1108A, "dense_r_C1108A"),
     (0x00C110B4, "dense_r_C110B4"),

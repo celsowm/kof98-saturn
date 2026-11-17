@@ -118,7 +118,7 @@ if(KOF_BUILD_NG_CORE_TESTS)
       COMMENT "Generating Musashi opcode tables (ng_slice_gen)" VERBATIM)
     add_executable(ng_boot_host_slice
       tests/test_ng_boot_slice.c
-      src/ng/ng_boot.c
+      src/ng/ng_boot.c src/ng/ng_boot_stats.c
       "${mus}/m68kcpu.c" "${mus}/m68kdasm.c" "${sgen}/m68kops.c" "${mus}/softfloat/softfloat.c")
     target_include_directories(ng_boot_host_slice PRIVATE src/ng include "${mus}" "${sgen}")
     target_compile_definitions(ng_boot_host_slice PRIVATE MUSASHI_CNF="ng_musashi_conf_boot.h")
@@ -228,7 +228,7 @@ if(KOF_BUILD_NG_BOOT)
     VERBATIM)
   add_executable(kof_ng_boot
     src/saturn/ng_boot_main.c
-    src/ng/ng_boot.c
+    src/ng/ng_boot.c src/ng/ng_boot_stats.c
     src/ng/ng_live_strips.c
     src/ng/ng_setjmp_shim.c
     "${mus}/m68kcpu.c"
@@ -375,7 +375,7 @@ if(KOF_BUILD_NG_RECOMP_HOST)
   # dispatcher (native entry vs Musashi fallback) is bit-exact vs the pure
   # interpreter over the full frame loop, on the real BIOS.
   add_executable(ng_boot_host_recomp
-    src/host/ng_boot_host.c src/host/ng_input_script.c src/ng/ng_boot.c src/ng/ng_live_strips.c
+    src/host/ng_boot_host.c src/host/ng_input_script.c src/ng/ng_boot.c src/ng/ng_boot_stats.c src/ng/ng_boot_recomp.c src/ng/ng_live_strips.c
     src/lspc_ir.c src/strip.c src/strip_emit.c
     "${mus}/m68kcpu.c" "${mus}/m68kdasm.c" "${hgen}/m68kops.c" "${mus}/softfloat/softfloat.c"
     "${recomp_c}" "${recomp_tab}")
@@ -396,7 +396,7 @@ if(KOF_BUILD_NG_RECOMP_HOST)
   # a hard fault. Must produce the same counters as the interpreter, proving the
   # interpreter-free build (the one that fits the Saturn WRAM budget) is exact.
   add_executable(ng_boot_host_recomp_only
-    src/host/ng_boot_host.c src/host/ng_input_script.c src/ng/ng_boot.c src/ng/ng_live_strips.c
+    src/host/ng_boot_host.c src/host/ng_input_script.c src/ng/ng_boot.c src/ng/ng_boot_stats.c src/ng/ng_boot_recomp.c src/ng/ng_live_strips.c
     src/lspc_ir.c src/strip.c src/strip_emit.c
     "${recomp_c}" "${recomp_tab}")
   target_include_directories(ng_boot_host_recomp_only PRIVATE
@@ -417,7 +417,8 @@ if(KOF_BUILD_NG_RECOMP_HOST)
   # Same interpreter core, with executed instruction words and 4 KB page hits
   # recorded. Used to size the native hot set; never built for Saturn.
   add_executable(ng_boot_host_prof
-    src/host/ng_boot_host.c src/host/ng_input_script.c src/ng/ng_boot.c src/ng/ng_live_strips.c
+    src/host/ng_boot_host.c src/host/ng_input_script.c src/ng/ng_boot.c src/ng/ng_boot_stats.c src/ng/ng_boot_profile.c
+    src/ng/ng_live_strips.c
     src/lspc_ir.c src/strip.c src/strip_emit.c
     "${mus}/m68kcpu.c" "${mus}/m68kdasm.c" "${hgen}/m68kops.c" "${mus}/softfloat/softfloat.c")
   target_include_directories(ng_boot_host_prof PRIVATE
@@ -467,7 +468,7 @@ if(KOF_BUILD_NG_RECOMP_HOST)
 
   add_executable(ng_boot_host_overlay
     src/host/ng_boot_host.c src/host/ng_input_script.c src/host/ng_overlay_host.c
-    src/ng/ng_boot.c src/ng/ng_live_strips.c
+    src/ng/ng_boot.c src/ng/ng_boot_stats.c src/ng/ng_boot_recomp.c src/ng/ng_live_strips.c
     src/lspc_ir.c src/strip.c src/strip_emit.c
     "${mus}/m68kcpu.c" "${mus}/m68kdasm.c" "${hgen}/m68kops.c" "${mus}/softfloat/softfloat.c"
     ${page_srcs} "${pages_dir}/bios_recomp_pages.c")
@@ -578,7 +579,7 @@ if(KOF_BUILD_NG_BENCH)
 
   # (1) Interpreter reference: same bench main, Musashi core.
   add_executable(kof_ng_bench_interp
-    src/saturn/ng_bench_main.c src/ng/ng_boot.c src/ng/ng_setjmp_shim.c
+    src/saturn/ng_bench_main.c src/ng/ng_boot.c src/ng/ng_boot_stats.c src/ng/ng_setjmp_shim.c
     "${mus}/m68kcpu.c" "${bgen}/m68kops.c")
   target_include_directories(kof_ng_bench_interp PRIVATE src/ng src/ng/shim "${mus}" "${bgen}")
   target_compile_definitions(kof_ng_bench_interp PRIVATE MUSASHI_CNF="ng_musashi_conf_boot.h" KOF_NG_SATURN=1)
@@ -590,7 +591,7 @@ if(KOF_BUILD_NG_BENCH)
 
   # (2) Recomp-only: native BIOS routines, no interpreter linked.
   add_executable(kof_ng_bench_recomp
-    src/saturn/ng_bench_main.c src/ng/ng_boot.c "${recomp_c}" "${recomp_tab}")
+    src/saturn/ng_bench_main.c src/ng/ng_boot.c src/ng/ng_boot_stats.c src/ng/ng_boot_recomp.c "${recomp_c}" "${recomp_tab}")
   target_include_directories(kof_ng_bench_recomp PRIVATE src/ng "${mus}" "${bgen}" "${nginc}")
   target_compile_definitions(kof_ng_bench_recomp PRIVATE NG_BOOT_RECOMP_ONLY KOF_NG_SATURN=1)
   target_compile_options(kof_ng_bench_recomp PRIVATE -w)
@@ -648,7 +649,7 @@ if(KOF_BUILD_NG_BENCH)
       COMMAND "${CMAKE_COMMAND}" -E make_directory "${ng_raw_disc}"
       COMMAND "${CMAKE_COMMAND}" -E copy "${KOF_TILE_DIR}/TILES.BIN" "${raw_tiles}" VERBATIM)
     add_executable(kof_ng_rawcode_bench
-      src/saturn/ng_rawcode_bench_main.c src/ng/ng_boot.c
+      src/saturn/ng_rawcode_bench_main.c src/ng/ng_boot.c src/ng/ng_boot_stats.c src/ng/ng_boot_recomp.c
       src/ng/ng_live_strips.c
       src/saturn/ng_overlay_saturn.c src/saturn/rawcode_loader.c
       src/ng/libgcc_stubs.c
@@ -699,11 +700,52 @@ if(KOF_BUILD_NG_BENCH)
       "${raw_l0}" "${raw_tiles}")
   endif()
 
+  # Hybrid core: native dense handlers for the profiled BIOS hotspots, plus a
+  # linked Musashi interpreter for guest-written low RAM/WRAM code (PC < 0x200000)
+  # that a static recomp overlay cannot represent. Same validated renderer as the
+  # rawcode bench. NG_BOOT_RECOMP (not _ONLY) activates recomp_step's Musashi
+  # fallback; NG_BOOT_GUEST_MUSASHI routes live-RAM PCs to it.
+  option(KOF_BUILD_HYBRID_BENCH "Build hybrid native+Musashi renderer bench" OFF)
+  if(KOF_BUILD_HYBRID_BENCH)
+    # Built on the proven kof_ng_boot renderer/cart base. Native recomp for the
+    # BIOS + dense handlers; Musashi fallback for guest-written RAM (< 0x200000)
+    # that static recomp cannot represent. Dropping the rawcode overlay/game map
+    # keeps the image inside WRAM-H (Musashi tables ~600 KiB + BIOS recomp ~472 KiB).
+    add_executable(kof_ng_hybrid_bench
+      src/saturn/ng_boot_main.c src/ng/ng_boot.c src/ng/ng_boot_stats.c src/ng/ng_boot_recomp.c
+      src/ng/ng_live_strips.c src/ng/ng_setjmp_shim.c
+      src/ng/libgcc_stubs.c src/ng/bios_table_stub.c
+      "${mus}/m68kcpu.c" "${m68kgen}/m68kops.c")
+    set(KOF_HYBRID_MAP "${CMAKE_CURRENT_SOURCE_DIR}/local/ymir/dense_only_map.c" CACHE FILEPATH "Resident map for hybrid bench")
+    target_sources(kof_ng_hybrid_bench PRIVATE
+      src/saturn/resident_dispatch.c
+      src/ng/dense_routines.c
+      "${KOF_HYBRID_MAP}")
+    target_include_directories(kof_ng_hybrid_bench BEFORE PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/local/ymir/c32"
+      "${CMAKE_CURRENT_SOURCE_DIR}/local/ng_recomp_game256")
+    target_include_directories(kof_ng_hybrid_bench PRIVATE
+      src/ng src/ng/shim src/saturn include "${mus}" "${m68kgen}" "${nginc}"
+      "${bgen}" "${KOF_TILE_DIR}" "${KOF_MUSIC_DIR}")
+    target_compile_definitions(kof_ng_hybrid_bench PRIVATE
+      NG_BOOT_RECOMP NG_BOOT_GUEST_MUSASHI
+      KOF_NG_SATURN=1 LIVE_MAX_STRIPS=512 KOF_32BIT_CYCLES=1
+      MUSASHI_CNF="ng_musashi_conf_boot.h")
+    target_compile_options(kof_ng_hybrid_bench PRIVATE -w)
+    target_link_options(kof_ng_hybrid_bench PRIVATE
+      -Wl,-u,___ashldi3 -Wl,-u,___ashrdi3 -Wl,-u,___lshrdi3)
+    libsaturn_configure_executable(kof_ng_hybrid_bench)
+    libsaturn_add_binary(kof_ng_hybrid_bench MAX_BYTES 983040)
+    target_link_libraries(kof_ng_hybrid_bench PRIVATE kof_saturn_assets)
+    libsaturn_add_disc(kof_ng_hybrid_bench ALL ROOT_FILES
+      "${bios_stage}" "${p1_stage}" "${p2_stage}" "${l0_stage}" "${tile_stage}" "${music_stage}")
+  endif()
+
   # Fully-resident native speed bench (opt-in, no renderer/paging).
   option(KOF_BUILD_RESIDENT_BENCH "Build the fully-resident native speed bench" OFF)
   if(KOF_BUILD_RESIDENT_BENCH)
     add_executable(kof_resident_bench
-      src/saturn/resident_bench_main.c src/ng/ng_boot.c src/ng/libgcc_stubs.c
+      src/saturn/resident_bench_main.c src/ng/ng_boot.c src/ng/ng_boot_stats.c src/ng/ng_boot_recomp.c src/ng/libgcc_stubs.c
       src/saturn/resident_dispatch.c
       src/ng/dense_routines.c
       "${CMAKE_CURRENT_SOURCE_DIR}/local/ymir/resident_routines.c"

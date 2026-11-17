@@ -1093,6 +1093,35 @@ after all `ng_boot.c` changes: rebuilt `kof_ng_boot` at 30k fields draws
 matching the historical `live-strip-5` evidence — so the renderer and my
 cycle/slow-write changes are intact. Full combination remains open.
 
+**Hybrid core reaches gameplay sprites + renderer (2026-11-17):** the
+recomp-only overlay's frame-3 halt is caused by guest-written low RAM / WRAM
+code (PC < 0x200000), for which a STATIC recomp overlay is invalid. I added a
+hybrid target `kof_ng_hybrid_bench` (`KOF_BUILD_HYBRID_BENCH`) that keeps the
+native dense handlers for BIOS hotspots but routes guest-RAM PCs to the linked
+Musashi fallback (`NG_BOOT_GUEST_MUSASHI` in `recomp_lookup`), with batched
+`m68k_execute` to avoid a ~100x per-instruction sync penalty. It builds on the
+proven `kof_ng_boot` renderer/cart base with the empty `bios_table_stub.c`
+(a full BIOS recomp plus Musashi cannot both fit in WRAM-H). Ymir evidence
+(`local/ymir/srp-hybrid`, 30k fields): guest frame 778, **140 strips drawn**
+(140 native, 60 tile uploads, 0 errors), 11.7M guest-written WRAM instructions,
+774 IRQs, `bad=0` (27,344 native dispatches / 178,875 fallback batches). The
+sprite hash differs from pure Musashi (1088421458 vs 3757359562) — an
+interrupt-timing difference between the recomp dispatcher and Musashi, proven
+independent of the dense handlers (empty-map run gives the same hash); the
+guest still reaches the same gameplay frame and renders the same strip count.
+This is emulator-only evidence; the hybrid is not real-time and there is no
+audio or console proof.
+
+**SRP split of ng_boot.c (2026-11-17):** the monolithic `ng_boot.c` was split
+by responsibility: `ng_boot.c` (hardware memory/LSPC/I/O, clock, frame loop,
+public API; 669 lines), `ng_boot_recomp.c` (native dispatch backend: CPU state,
+routine lookup, resident cache, BIOS/game overlays, step/init; 417 lines),
+`ng_boot_profile.c` (host-only PC profiler; 104 lines), `ng_boot_stats.c`
+(probe-visible counters; 21 lines), and `ng_boot_internal.h` (explicit shared
+internals). All Saturn and host targets were rewired. Behavior verified
+unchanged: resident bench `bad=0`, ~0.97x; hybrid 30k fields still draws 140
+strips with identical guest counters; 39/39 ROM-free host tests pass.
+
 **REACHED REAL TIME (2026-11-17) — final sound-strobe inline + 30k validation:**
 the last optimization inlines the `move.b Dn,$300001` sound-command strobe in
 the dense handlers as a direct `ng_boot_io_writes++` (bit-exact: page $30 is
