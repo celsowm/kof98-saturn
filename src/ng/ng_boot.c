@@ -285,7 +285,12 @@ static void system_latch(uint32_t a) {
     int bit = (a >> 4) & 1;
     switch ((a >> 1) & 7) {
     case 0: break;
-    case 1: s_bios_vectors = (uint8_t)!bit; break;   /* SWPBIOS: no P ROM present */
+    case 1:
+        s_bios_vectors = (uint8_t)!bit;              /* SWPBIOS: no P ROM present */
+#ifdef NG_BOOT_LIVE_AUDIO
+        audio_select_bios_rom(s_bios_vectors);       /* Z80 switches SM1/M1 driver */
+#endif
+        break;
     case 5: s_fix_bios = (uint8_t)!bit; break;        /* BRDFIX/CRTFIX */
     case 6: s_backup_locked = (uint8_t)!bit; break;   /* SRAM lock */
     case 7: s_pal_bank = bit ? 0 : 1; break;          /* PALBANK */
@@ -315,7 +320,13 @@ static uint8_t io_read8(uint32_t a) {
         if (!(a & 1)) return (uint8_t)~s_p1;
         if (a & 0x80) return (uint8_t)(0x3F | (s_test ? 0 : 0x80));
         return 0xFF;
-    case 0x320000: return (a & 1) ? status_a() : s_sound_reply;
+    case 0x320000:
+        if (a & 1) return status_a();
+#ifdef NG_BOOT_LIVE_AUDIO
+        return audio_reply();
+#else
+        return s_sound_reply;
+#endif
     case 0x340000: return (a & 1) ? 0xFF : (uint8_t)~s_p2;
     case 0x380000: return (a & 1) ? 0xFF : status_b();
     default: return 0xFF;
@@ -325,7 +336,15 @@ static void io_write8(uint32_t a, uint8_t v) {
     ng_boot_io_writes++;
     switch (a & 0xFE0000) {
     case 0x300000: break;
-    case 0x320000: if (!(a & 1)) { s_sound_cmd = v; s_sound_reply = 0; } break;
+    case 0x320000:
+        if (!(a & 1)) {
+#ifdef NG_BOOT_LIVE_AUDIO
+            audio_command(v);
+#else
+            s_sound_cmd = v; s_sound_reply = 0;
+#endif
+        }
+        break;
     case 0x380000: break;
     case 0x3A0000: if (a & 1) system_latch(a); break;
     default: break;
@@ -638,6 +657,9 @@ void ng_boot_run_frames(uint32_t frames) {
         }
         ng_frame_start = fs + (int64_t)264 * 768;
         run_until(ng_frame_start);
+#ifdef NG_BOOT_LIVE_AUDIO
+        audio_sync();   /* run the Z80/YM2610 up to the guest's cycle count */
+#endif
         ng_boot_frames++;
     }
 }

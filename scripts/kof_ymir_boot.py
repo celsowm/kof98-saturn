@@ -41,6 +41,8 @@ SYMBOLS = (
     "kof_live_draw_variants",
     "kof_live_tile_uploads",
     "kof_live_draw_error",
+    "kof_ym_samples",
+    "kof_ym_written",
 )
 DEFAULT_BIOS = Path(os.getenv(
     "LIBSATURN_KOF_BIOS",
@@ -59,7 +61,7 @@ def resolve_symbols(elf: Path) -> dict:
         r = subprocess.run([nm, "-S", "--defined-only", str(elf)], text=True, capture_output=True)
         if r.returncode == 0:
             for line in r.stdout.splitlines():
-                m = re.match(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+\w\s+_?((?:ng_boot|kof_live)_\w+)$", line)
+                m = re.match(r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+\w\s+_?((?:ng_boot|kof_live|kof_ym)_\w+)$", line)
                 if m and int(m[2], 16) == 4:
                     found[m[3]] = int(m[1], 16)
     for p in (elf.with_suffix(".elf.map"), elf.with_suffix(".map")):
@@ -85,6 +87,8 @@ def main() -> int:
     p.add_argument("--timeout", type=int, default=1200)
     p.add_argument("--target", default="kof_ng_boot",
                    help="application target name (e.g. kof_ng_hybrid_bench)")
+    p.add_argument("--dump-audio", action="store_true",
+                   help="dump the emulated SCSP audio to audio.pcm")
     a = p.parse_args()
 
     build = a.build.resolve()
@@ -109,6 +113,8 @@ def main() -> int:
         "--sh2-cache", "on", "--ram-cart", "4m",
         "--out", "probe.json", "--misaligned-report", "misaligned.txt",
     ]
+    if a.dump_audio:
+        cmd += ["--dump-audio", "audio.pcm"]
     for key, address in addresses.items():
         cmd += ["--dump-mem", f"0x{address:08x}:4:{key}.bin"]
     if "ng_boot_frames" in addresses:

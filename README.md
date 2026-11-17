@@ -55,7 +55,12 @@ negative result. A playable port still needs the renderer on the **real-time**
 native path (the dense handlers + verified dispatch are wired into the
 renderer-enabled `kof_ng_rawcode_bench` with `bad=0`, but the recomp-only
 overlay cannot execute the BIOS-copied WRAM routine, so it draws 0 strips —
-see [X2 native residency]), live Z80/YM2610 audio, and physical-console proof.
+see [X2 native residency]). A hybrid core (`kof_ng_hybrid_bench`) combines
+native dense handlers with a Musashi fallback for guest-written RAM and draws
+140 strips with `bad=0`, and the upstream Z80/YM2610 sound CPU now runs natively
+there: Ymir `--dump-audio` shows 604k live samples written to the SCSP (95.7%
+non-zero, peak 24505) — but the game M1 ROM is not loaded yet (SM1 fallback),
+the hybrid is not real-time, and there is no physical-console proof.
 Routine **overlay/paging is host-proven**: an 8-page split served by a 3-page
 budget is bit-exact over 1200 frames (10 loads, 7 evictions, 318,020 native
 dispatches, 0 interpreted). But a game-side size measurement closes the

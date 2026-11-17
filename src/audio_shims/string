@@ -1,0 +1,18 @@
+#ifndef SH2_SHIM_STRING
+#define SH2_SHIM_STRING
+#include <stddef.h>
+#include <string.h>
+namespace std {
+/* Minimal string: only the ctor from const char* is used by ymfm's log_keyon
+ * debug helpers, which are never called in the Saturn build. */
+class string {
+public:
+    string() : p(0) {}
+    string(const char* s) { unsigned n = s ? strlen(s) : 0; p = n ? new char[n+1] : 0; if (p) { memcpy(p, s, n); p[n] = 0; } }
+    ~string() { delete[] p; }
+    const char* c_str() const { return p ? p : ""; }
+private:
+    char* p;
+};
+}
+#endif

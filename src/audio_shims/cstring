@@ -1,0 +1,4 @@
+#ifndef SH2_SHIM_CSTRING
+#define SH2_SHIM_CSTRING
+#include <string.h>
+#endif

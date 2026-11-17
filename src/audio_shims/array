@@ -1,0 +1,15 @@
+#ifndef SH2_SHIM_ARRAY
+#define SH2_SHIM_ARRAY
+#include <stddef.h>
+namespace std {
+template<class T, size_t N> struct array {
+    T e[N];
+    T& operator[](size_t i) { return e[i]; }
+    const T& operator[](size_t i) const { return e[i]; }
+    T* data() { return e; }
+    const T* data() const { return e; }
+    size_t size() const { return N; }
+    bool empty() const { return N == 0; }
+};
+}
+#endif

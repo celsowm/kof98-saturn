@@ -1,0 +1,22 @@
+Audio subsystem provenance
+===========================
+
+This directory contains a minimal freestanding compatibility layer that lets
+the upstream Neo Geo sound CPU run on the Sega Saturn SH-2 target.
+
+Imported code (used under its original open-source terms):
+  - audio_saturn.c  : local copy of deps/kof98recomp/neogeorecomp/src/audio.c
+  - ng_internal.h   : local copy of deps/kof98recomp/neogeorecomp/src/ng_internal.h
+    Source: https://github.com/danilopaulinodasilva/kof98recomp (neogeorecomp).
+    Only two mechanical patches are applied (see tools/_make_audio_saturn.py):
+    KOF_32BIT_CYCLES-aware ng_cycles type, and an M1->SM1 ROM fallback.
+
+The YM2610 synthesis library (ext/ymfm) and the Z80 core (ext/z80) are NOT
+copied here: they are compiled directly from deps/kof98recomp/neogeorecomp/ext.
+ymfm is BSD 3-Clause, Copyright (c) 2021 Aaron Giles; its license header is
+preserved in the original files.
+
+The remaining headers in this directory (cstdint, cassert, cstring, cstdio,
+algorithm, array, memory, string, vector, shim_*) are original minimal
+freestanding shims written for this project, because the SH-2 toolchain has no
+C++ standard library.

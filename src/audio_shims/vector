@@ -1,0 +1,36 @@
+#ifndef SH2_SHIM_VECTOR
+#define SH2_SHIM_VECTOR
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
+namespace std {
+/* Minimal dynamic vector: default ctor, push_back, resize, operator[], size.
+ * Enough for ymfm's audio buffer and ymfm_saved_state (state I/O unused). */
+template<class T> class vector {
+public:
+    vector() : d(0), n(0), cap(0) {}
+    ~vector() { free(d); }
+    void push_back(const T& v) {
+        if (n == cap) grow(cap ? cap * 2 : 16);
+        d[n++] = v;
+    }
+    void resize(size_t m) {
+        if (m > cap) grow(m);
+        n = m;
+    }
+    T& operator[](size_t i) { return d[i]; }
+    const T& operator[](size_t i) const { return d[i]; }
+    size_t size() const { return n; }
+    bool empty() const { return n == 0; }
+private:
+    void grow(size_t m) {
+        T* nd = (T*)malloc(m * sizeof(T));
+        if (d) { memcpy(nd, d, n * sizeof(T)); free(d); }
+        d = nd; cap = m;
+    }
+    vector(const vector&);
+    vector& operator=(const vector&);
+    T* d; size_t n, cap;
+};
+}
+#endif

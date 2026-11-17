@@ -301,10 +301,10 @@ option(KOF_BUILD_NG_RECOMP_HOST "Build the host native-recomp (X2) equivalence/s
 if(KOF_BUILD_NG_RECOMP_HOST)
   set(KOF_UPSTREAM_DIR "" CACHE PATH "Pinned KOF98 reference checkout")
   get_filename_component(NG "${KOF_UPSTREAM_DIR}" ABSOLUTE)
-  set(mus "${NG}/neogeorecomp/ext/musashi")
-  set(ngsrc "${NG}/neogeorecomp/src")
-  set(ngtools "${NG}/neogeorecomp/tools/m68krecomp")
-  set(nginc "${NG}/neogeorecomp/include")
+  set(mus "${up}/neogeorecomp/ext/musashi")
+  set(ngsrc "${up}/neogeorecomp/src")
+  set(ngtools "${up}/neogeorecomp/tools/m68krecomp")
+  set(nginc "${up}/neogeorecomp/include")
   if(NOT EXISTS "${mus}/m68kcpu.c")
     message(FATAL_ERROR "Musashi sources not found; set KOF_UPSTREAM_DIR")
   endif()
@@ -717,18 +717,38 @@ if(KOF_BUILD_NG_BENCH)
       src/ng/libgcc_stubs.c src/ng/bios_table_stub.c
       "${mus}/m68kcpu.c" "${m68kgen}/m68kops.c")
     set(KOF_HYBRID_MAP "${CMAKE_CURRENT_SOURCE_DIR}/local/ymir/dense_only_map.c" CACHE FILEPATH "Resident map for hybrid bench")
+    # Live Z80 + YM2610 sound (upstream audio.c/ymfm, BSD-3) with minimal
+    # freestanding C++ shims because the SH-2 toolchain has no libstdc++.
+    set(KOF_AUDIO_SOURCES
+      src/audio_shims/audio_saturn.c "${ngsrc}/ym2610.cpp"
+      "${up}/neogeorecomp/ext/ymfm/src/ymfm_opn.cpp"
+      "${up}/neogeorecomp/ext/ymfm/src/ymfm_adpcm.cpp"
+      "${up}/neogeorecomp/ext/ymfm/src/ymfm_ssg.cpp"
+      "${up}/neogeorecomp/ext/ymfm/src/ymfm_misc.cpp"
+      "${up}/neogeorecomp/ext/z80/z80.c"
+      src/audio_shims/shim_alloc.c src/audio_shims/shim_alloc.cpp)
     target_sources(kof_ng_hybrid_bench PRIVATE
       src/saturn/resident_dispatch.c
       src/ng/dense_routines.c
-      "${KOF_HYBRID_MAP}")
+      "${KOF_HYBRID_MAP}" ${KOF_AUDIO_SOURCES})
+    set_source_files_properties(
+      src/audio_shims/shim_alloc.cpp
+      "${ngsrc}/ym2610.cpp"
+      "${up}/neogeorecomp/ext/ymfm/src/ymfm_opn.cpp"
+      "${up}/neogeorecomp/ext/ymfm/src/ymfm_adpcm.cpp"
+      "${up}/neogeorecomp/ext/ymfm/src/ymfm_ssg.cpp"
+      "${up}/neogeorecomp/ext/ymfm/src/ymfm_misc.cpp"
+      PROPERTIES COMPILE_OPTIONS "-std=c++17;-fno-exceptions;-fno-rtti")
     target_include_directories(kof_ng_hybrid_bench BEFORE PRIVATE
+      src/audio_shims
       "${CMAKE_CURRENT_SOURCE_DIR}/local/ymir/c32"
       "${CMAKE_CURRENT_SOURCE_DIR}/local/ng_recomp_game256")
     target_include_directories(kof_ng_hybrid_bench PRIVATE
       src/ng src/ng/shim src/saturn include "${mus}" "${m68kgen}" "${nginc}"
+      "${ngsrc}" "${up}/neogeorecomp/ext/ymfm/src" "${up}/neogeorecomp/ext/z80"
       "${bgen}" "${KOF_TILE_DIR}" "${KOF_MUSIC_DIR}")
     target_compile_definitions(kof_ng_hybrid_bench PRIVATE
-      NG_BOOT_RECOMP NG_BOOT_GUEST_MUSASHI
+      NG_BOOT_RECOMP NG_BOOT_GUEST_MUSASHI NG_BOOT_LIVE_AUDIO
       KOF_NG_SATURN=1 LIVE_MAX_STRIPS=512 KOF_32BIT_CYCLES=1
       MUSASHI_CNF="ng_musashi_conf_boot.h")
     target_compile_options(kof_ng_hybrid_bench PRIVATE -w)
@@ -737,8 +757,12 @@ if(KOF_BUILD_NG_BENCH)
     libsaturn_configure_executable(kof_ng_hybrid_bench)
     libsaturn_add_binary(kof_ng_hybrid_bench MAX_BYTES 983040)
     target_link_libraries(kof_ng_hybrid_bench PRIVATE kof_saturn_assets)
+    set(sm1_stage "${CMAKE_CURRENT_BINARY_DIR}/ng-hybrid-disc/SM1.BIN")
+    add_custom_command(OUTPUT "${sm1_stage}"
+      COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/ng-hybrid-disc"
+      COMMAND "${CMAKE_COMMAND}" -E copy "${CMAKE_CURRENT_SOURCE_DIR}/roms/sm1.sm1" "${sm1_stage}" VERBATIM)
     libsaturn_add_disc(kof_ng_hybrid_bench ALL ROOT_FILES
-      "${bios_stage}" "${p1_stage}" "${p2_stage}" "${l0_stage}" "${tile_stage}" "${music_stage}")
+      "${bios_stage}" "${p1_stage}" "${p2_stage}" "${l0_stage}" "${tile_stage}" "${music_stage}" "${sm1_stage}")
   endif()
 
   # Fully-resident native speed bench (opt-in, no renderer/paging).

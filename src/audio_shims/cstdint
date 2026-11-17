@@ -1,0 +1,4 @@
+#ifndef SH2_SHIM_CSTDINT
+#define SH2_SHIM_CSTDINT
+#include <stdint.h>
+#endif

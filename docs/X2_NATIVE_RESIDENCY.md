@@ -1093,6 +1093,23 @@ after all `ng_boot.c` changes: rebuilt `kof_ng_boot` at 30k fields draws
 matching the historical `live-strip-5` evidence — so the renderer and my
 cycle/slow-write changes are intact. Full combination remains open.
 
+**Live Z80/YM2610 audio integrated (2026-11-17):** the upstream
+`audio.c`/ymfm/Z80 sound CPU (BSD-3) now runs natively on the SH-2 in the
+hybrid target. The SH-2 toolchain has no libstdc++, so `src/audio_shims/`
+provides minimal C/C++ headers (array/vector/memory/string/algorithms) and a
+bump allocator with global new/delete; all audio sources compile for SH-2
+(`tools/_make_audio_saturn.py` produces a local `audio_saturn.c` preserving the
+BSD-3 notice, patching only the `ng_cycles` type and an M1->SM1 fallback).
+`NG_BOOT_LIVE_AUDIO` routes `$320000` reads/writes to `audio_reply()`/
+`audio_command()`, switches the Z80 driver on the SWPBIOS latch, and syncs the
+Z80 to the guest clock at each frame. Main loads `SM1.BIN` from the disc and
+feeds `audio_take_samples()` mono into an SCSP stream (the generic stream API
+is mono-only). Ymir evidence (`local/ymir/audio-live2`, 30k fields): guest
+frame 647, **604,107 live YM2610 samples generated and written to SCSP**, and
+`--dump-audio` shows **95.7% non-zero samples, peak 24,505, RMS 3,072** — real
+synthesised signal, not silence. The game M1 ROM is not loaded yet (SM1
+fallback), so the music is the BIOS driver, not the final game soundtrack.
+
 **Hybrid core reaches gameplay sprites + renderer (2026-11-17):** the
 recomp-only overlay's frame-3 halt is caused by guest-written low RAM / WRAM
 code (PC < 0x200000), for which a STATIC recomp overlay is invalid. I added a

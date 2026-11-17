@@ -1,0 +1,19 @@
+#ifndef SH2_SHIM_ALGORITHM
+#define SH2_SHIM_ALGORITHM
+namespace std {
+template<class T> const T& min(const T& a, const T& b) { return a < b ? a : b; }
+template<class T> const T& max(const T& a, const T& b) { return a > b ? a : b; }
+template<class T> T abs(T v) { return v < 0 ? -v : v; }
+template<class In, class Out> Out copy_n(In first, unsigned long n, Out out) {
+    for (unsigned long i = 0; i < n; i++) *out++ = *first++;
+    return out;
+}
+template<class Out, class T> void fill_n(Out out, unsigned long n, const T& v) {
+    for (unsigned long i = 0; i < n; i++) *out++ = v;
+}
+template<class In1, class In2, class Out> Out copy(In1 first, In1 last, Out out) {
+    while (first != last) *out++ = *first++;
+    return out;
+}
+}
+#endif

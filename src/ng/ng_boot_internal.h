@@ -61,4 +61,13 @@ void recomp_step(void);
 void ng_profile_record(uint32_t pc);
 #endif
 
+/* Live Z80/YM2610 sound (upstream audio.c, BSD-3). */
+#ifdef NG_BOOT_LIVE_AUDIO
+void   audio_command(uint8_t cmd);
+uint8_t audio_reply(void);
+void   audio_select_bios_rom(int bios);
+void   audio_sync(void);
+size_t audio_take_samples(int16_t* out, size_t max_frames);
+#endif
+
 #endif /* KOF98_NG_BOOT_INTERNAL_H */

@@ -1,0 +1,4 @@
+#ifndef SH2_SHIM_CSTDIO
+#define SH2_SHIM_CSTDIO
+#include <stdio.h>
+#endif
