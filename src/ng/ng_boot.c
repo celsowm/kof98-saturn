@@ -186,9 +186,59 @@ static void timer_fire(void) {
 /* Per-field service hook (see ng_boot.h): fires from the VBlank entry below. */
 static ng_boot_slice_fn s_field_fn;
 
+/* Per-frame guest-state trace (opt-in NG_GUEST_FRAME_TRACE) for diagnosing
+ * recomp-vs-interpreter divergence. One record per vblank, dumped via Ymir
+ * --dump-mem. Local diagnostic only; no effect unless the flag is set. */
+#ifdef NG_GUEST_FRAME_TRACE
+typedef struct {
+    uint32_t frame, pc, instr, vram, blocks;
+    uint16_t sr;
+    uint8_t  stopped, irq;
+} ng_frame_trace_rec_t;
+ng_frame_trace_rec_t g_frame_trace[256];
+volatile uint32_t g_frame_trace_n;
+uint32_t g_pc_ring[256];            /* last 256 dispatched guest PCs */
+volatile uint32_t g_pc_ring_w;
+static uint16_t ng_trace_sr(void) {
+#ifdef NG_BOOT_RECOMP
+    return ng_get_sr();
+#else
+    return (uint16_t)m68k_get_reg(NULL, M68K_REG_SR);
+#endif
+}
+static uint32_t ng_trace_pc(void) {
+#ifdef NG_BOOT_RECOMP
+    return ng_cpu.pc;
+#else
+    return (uint32_t)m68k_get_reg(NULL, M68K_REG_PC);
+#endif
+}
+#endif
+
 static void lspc_vblank(void) {
     ng_irq_pending |= 1;
     ng_boot_vblanks++;
+#ifdef NG_GUEST_FRAME_TRACE
+    if (g_frame_trace_n < 256) {
+        ng_frame_trace_rec_t* r = &g_frame_trace[g_frame_trace_n++];
+        r->frame = ng_boot_frames;
+        r->pc = ng_trace_pc();
+        r->sr = ng_trace_sr();
+#ifdef NG_BOOT_RECOMP
+        r->stopped = ng_cpu.stopped;
+#else
+        r->stopped = 0;
+#endif
+        r->irq = ng_irq_pending;
+        r->instr = ng_boot_instructions;
+        r->vram = ng_boot_vram_writes;
+#ifdef NG_BOOT_RECOMP
+        r->blocks = ng_boot_recomp_blocks;
+#else
+        r->blocks = 0;
+#endif
+    }
+#endif
     if (!s_anim_disabled) {
         if (s_anim_frames == 0) { s_anim_frames = s_anim_speed; s_anim_counter++; }
         else s_anim_frames--;
@@ -885,6 +935,9 @@ static void recomp_take_irq(int level) {
 /* Dispatch PC trace (instrumentation): circular log of guest PCs + D0. */
 
 static void recomp_step(void) {
+#ifdef NG_GUEST_FRAME_TRACE
+    g_pc_ring[g_pc_ring_w++ & 255u] = ng_cpu.pc;
+#endif
     int level = ng_irq_level();
     if (level > ng_cpu.ipl || level == 7) recomp_take_irq(level);
     if (ng_cpu.stopped) return;

@@ -1053,20 +1053,34 @@ contrast executes 11.7M guest-written WRAM instructions and reaches 140 strips.
 The recomp-only path's inability to execute that guest-copied code is the real
 gap. Adding the self-contained `wram_r_100000` rescue routine to the dense-only map
 
-**Halt mechanism traced precisely (2026-11-17):** dumping `ng_cpu` at frame 778
-in the stalled recomp-only bench (`--dump-mem 0x...:84`) decodes (per the
-`ng_cpu_t` layout in cpu.h): `pc=0xA3DA`, `s=1`, `ipl=1`, **`stopped=1`**, with
-`ng_irq_pending=0x01` and `ng_boot_irq_taken=1`. The guest is parked in a
-recompiled `STOP` (`emit.c` lowers it to `ng_set_sr(imm); CPU.stopped=1`) whose
-SR set IPL=1, so the only pending source — the level-1 vblank — can never wake
-it (`recomp_step` takes an IRQ only when `level > ipl`). Musashi uses the same
-strict `>` check (`m68kcpu.h:2170`), so this is spec-correct for both cores: the
-recomp path must have diverged to a different guest SR *before* the STOP. The
-halt is therefore an earlier recomp-vs-interpreter state divergence in the
-game/overlay code, not a fixable IRQ-condition bug. `ng_boot_recomp_bad=0`
-(confirmed both from the summary and by a direct memory dump) rules out a
-dispatch miss as the immediate cause. Resolving this needs a per-PC comparison
-of guest SR between the two cores before the STOP — a separate debugging task.
+**Halt mechanism traced precisely (2026-11-17) — per-frame SR trace:** I added
+a compile-gated per-vblank trace (`NG_GUEST_FRAME_TRACE`, `KOF_GUEST_FRAME_TRACE`
+CMake option; `tools/_dump_trace.py` resolves the symbols via nm and dumps them
+with Ymir). Comparing the recomp overlay core vs the interpreter core at the
+same guest frames: frames 0-2 are identical (same PC / SR / instruction and VRAM
+counts), then at **frame 3** the recomp is at `pc=0xA3DA, sr=0x2100` (IPL=1) with
+`instr` frozen at 64,334 while the interpreter is at `pc=0xC1712C, sr=0x2000`
+(IPL=0) and keeps executing (78,561 instructions and rising). The recomp never
+advances after frame 3. **Correction to my earlier STOP hypothesis:** a direct
+dump of `ng_cpu` decodes `stopped=0` and `ng_boot_recomp_bad=0`, so this is NOT a
+STOP deadlock and NOT a dispatch miss — the guest simply stops making progress
+with IPL=1. Musashi uses the same strict `level > ipl` IRQ check (`m68kcpu.h:2170`),
+so the divergence must occur *before* frame 3 in the game/overlay code.
+
+**Second finding — overlay pack ABI mismatch:** with `rawpack1024d`, a direct
+dump shows `ng_next_event = 0x060C944C` — the address of `_s_game_page_stamp`,
+a pointer corrupting what must be a cycle count (~608K). With `rawpackc32b`
+(built for 32-bit cycles) `ng_next_event = 0x94B00` is sane, yet that pack still
+freezes (at frame 2). So there are two distinct problems: (1) `rawpack1024d`
+was built with an incompatible global layout and corrupts the runtime, and
+(2) even with a correct pack, the recomp-only overlay diverges from the
+interpreter in early game code. The interpreter executes 11.7M guest-written
+WRAM instructions and reaches gameplay; the recomp-only path cannot follow
+dynamically written/guest-copied code, which is the fundamental gap.
+
+The halt is therefore NOT fixable by a dispatch or IRQ tweak; it needs either
+dynamic recompilation of guest-written code or a hybrid interpreter fallback
+for unmapped PCs (the interpreter path already does this, but is not real-time).
 Adding the self-contained `wram_r_100000` rescue routine to the dense-only map
 (`src/ng/wram_rescue_routines.c`, 14 entries, 598,988-byte binary) also did not
 help: the recomp-only overlay guest reaches its frame-778 render point with
