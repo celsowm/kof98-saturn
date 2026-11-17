@@ -58,9 +58,11 @@ overlay cannot execute the BIOS-copied WRAM routine, so it draws 0 strips —
 see [X2 native residency]). A hybrid core (`kof_ng_hybrid_bench`) combines
 native dense handlers with a Musashi fallback for guest-written RAM and draws
 140 strips with `bad=0`, and the upstream Z80/YM2610 sound CPU now runs natively
-there: Ymir `--dump-audio` shows 604k live samples written to the SCSP (95.7%
-non-zero, peak 24505) — but the game M1 ROM is not loaded yet (SM1 fallback),
-the hybrid is not real-time, and there is no physical-console proof.
+there. With the game M1 ROM loaded, ONE build (`kof_ng_hybrid_bench`) runs
+native logic + the 140-strip renderer + live game audio: Ymir evidence shows
+frame 778, 140 strips (0 errors), 725k live YM2610 samples to SCSP, `bad=0`.
+But that hybrid is **not real-time**; the real-time (0.9973x) evidence is a
+separate bench with no renderer/audio. There is no physical-console proof.
 Routine **overlay/paging is host-proven**: an 8-page split served by a 3-page
 budget is bit-exact over 1200 frames (10 loads, 7 evictions, 318,020 native
 dispatches, 0 interpreted). But a game-side size measurement closes the

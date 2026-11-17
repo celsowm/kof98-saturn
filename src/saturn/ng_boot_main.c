@@ -286,14 +286,19 @@ int main(void) {
     ng_boot_init(g_bios_raw, sizeof(g_bios_raw));
 
 #ifdef NG_BOOT_LIVE_AUDIO
-    /* Load the BIOS SM1 sound driver and start the live Z80/YM2610. The game
-     * M1 ROM is not loaded yet: audio.c falls back to SM1 when it is absent. */
+    /* Load the game M1 and BIOS SM1 Z80 drivers, then start the live YM2610.
+     * ROM bytes are used verbatim (the host loads M1/SM1 without swapping;
+     * only the 68000 BIOS is byte-swapped). g_bios_raw has already been copied
+     * into s_bios by ng_boot_init, so it is reused as the M1 buffer: no extra
+     * Work RAM is needed and the full game soundtrack is available after the
+     * BIOS switches the Z80 from SM1 to M1 on the SWPBIOS latch. */
     {
         uint32_t got = 0;
         if (load_file("SM1.BIN", g_sm1, sizeof(g_sm1), &got) != SAT_OK || got != sizeof(g_sm1)) fail(__LINE__);
-        swap16(g_sm1, sizeof(g_sm1));
         kof_ym_step = 1;
-        if (audio_init(0, 0, g_sm1, 0, 0, 0) != 0) fail(__LINE__);
+        /* g_bios_raw is now free: reload it with the game's M1 ROM. */
+        if (load_file("M1.BIN", g_bios_raw, sizeof(g_bios_raw), &got) != SAT_OK || got != sizeof(g_bios_raw)) fail(__LINE__);
+        if (audio_init(g_bios_raw, sizeof(g_bios_raw), g_sm1, 0, 0, 0) != 0) fail(__LINE__);
         kof_ym_step = 2;
     }
     {

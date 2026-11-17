@@ -1093,6 +1093,20 @@ after all `ng_boot.c` changes: rebuilt `kof_ng_boot` at 30k fields draws
 matching the historical `live-strip-5` evidence — so the renderer and my
 cycle/slow-write changes are intact. Full combination remains open.
 
+**Unified hybrid build: native logic + renderer + live game audio (2026-11-17):**
+with the game `M1.BIN` (`roms/242-s1.bin`) staged on the disc and loaded into
+the now-free `g_bios_raw` buffer (no extra Work RAM), the hybrid runs the real
+game sound driver. Ymir evidence (`local/ymir/audio-live-long`, 45k fields,
+app sha `1fcb81f2…`): guest frame 778, **140 strips drawn** (140 native, 60
+tile uploads, **0 errors**), **725,623 live YM2610 samples generated and
+written to SCSP**, and `bad=0` (direct memory dump). The audio differs from the
+SM1-only build (`audio-live2` vs `audio-m1` dump hashes 9bd6f2… vs 2448be…,
+different RMS), confirming the M1 driver is used. This is ONE build combining
+native dense dispatch, Musashi fallback for guest-written RAM, the validated
+renderer, and live game audio — but it is **not real-time** (45k emulated fields
+for 778 guest frames); the real-time evidence remains the isolated resident
+bench. No physical-console evidence.
+
 **Live Z80/YM2610 audio integrated (2026-11-17):** the upstream
 `audio.c`/ymfm/Z80 sound CPU (BSD-3) now runs natively on the SH-2 in the
 hybrid target. The SH-2 toolchain has no libstdc++, so `src/audio_shims/`

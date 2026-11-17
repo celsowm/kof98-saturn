@@ -758,11 +758,15 @@ if(KOF_BUILD_NG_BENCH)
     libsaturn_add_binary(kof_ng_hybrid_bench MAX_BYTES 983040)
     target_link_libraries(kof_ng_hybrid_bench PRIVATE kof_saturn_assets)
     set(sm1_stage "${CMAKE_CURRENT_BINARY_DIR}/ng-hybrid-disc/SM1.BIN")
+    set(m1_stage "${CMAKE_CURRENT_BINARY_DIR}/ng-hybrid-disc/M1.BIN")
     add_custom_command(OUTPUT "${sm1_stage}"
       COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/ng-hybrid-disc"
       COMMAND "${CMAKE_COMMAND}" -E copy "${CMAKE_CURRENT_SOURCE_DIR}/roms/sm1.sm1" "${sm1_stage}" VERBATIM)
+    add_custom_command(OUTPUT "${m1_stage}"
+      COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/ng-hybrid-disc"
+      COMMAND "${CMAKE_COMMAND}" -E copy "${CMAKE_CURRENT_SOURCE_DIR}/roms/242-s1.bin" "${m1_stage}" VERBATIM)
     libsaturn_add_disc(kof_ng_hybrid_bench ALL ROOT_FILES
-      "${bios_stage}" "${p1_stage}" "${p2_stage}" "${l0_stage}" "${tile_stage}" "${music_stage}" "${sm1_stage}")
+      "${bios_stage}" "${p1_stage}" "${p2_stage}" "${l0_stage}" "${tile_stage}" "${music_stage}" "${sm1_stage}" "${m1_stage}")
   endif()
 
   # Fully-resident native speed bench (opt-in, no renderer/paging).
