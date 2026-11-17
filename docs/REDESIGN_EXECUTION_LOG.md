@@ -151,3 +151,73 @@ Final clean-source binaries (diagnostic counters removed):
 `kof_unified.app.bin` SHA-256 `60bf98c5…`. The latter was re-verified for
 1500 fields (`local/ymir/p5-final-check`): `bad=0`, `interp=0`, 19,408 live
 samples written, `kof_ym_step=3`.
+
+## P5 follow-up — can audio cost be offloaded or cut?
+
+A full SH-2 symbol profile of the unified run (`local/ymir/p5-prof`, 619M
+instructions) attributes **52.4% of all instructions to audio**: ymfm
+(FM+SSG+ADPCM) 28.8%, Z80 core 17.1%, glue 6.6%. The YM2610 generates ~933
+stereo samples per 60 Hz guest frame (55,555 Hz output; `SAMPLE_CLOCKS=72`).
+There is no redundant generation and no fidelity knob: for YM2610
+`OPN_FIDELITY_MIN` and `OPN_FIDELITY_MED` are the **same branch**
+(`ymfm_opn.cpp:2140-2155`), which is why the earlier "MIN" test changed
+nothing. `audio_sync()` batching cannot help — Z80 work is a function of total
+guest cycles and must be available at each `$320000` latch read.
+
+**Slave SH-2 offload is feasible but cannot meet P5.** The SDK supports bounded
+message-passing jobs (`sat_dual_sh2_*` in `dual_sh2.h`; depth-1 uncached mailbox
+at `0x06002000`, doorbell MMIO write `0x21000000`), with a working precedent in
+`src/saturn/sequence_live_slave_hash.inc` (341/341 jobs, 0 errors,
+`docs/REAL_FRAME_REPLAY.md:325`). `CROSS_PORT_ENGINEERING.md:60` permits Slave
+"stage audio blocks" jobs. But moving even *all* audio off Master is capped:
+
+| offloaded (zero-cost, perfect overlap) | max speedup | resulting ratio |
+|---|---:|---:|
+| all ymfm (28.8%) | 1.40× | 0.068× |
+| ymfm + glue (35.4%) | 1.55× | 0.075× |
+| all audio (52.4%) | 2.11× | 0.102× |
+
+against the ~1.0× gate. In practice the Z80 must stay on Master (its replies
+are read synchronously by the guest at `$320000`), so only the ymfm share is
+movable. The normative alternative (`PORTING_PLAN.md:99`: "Generate music ADX
+offline from the original driver… consider a hybrid driver approach, not a
+full YM2610 software emulation assumption") is pre-rendered audio driven by
+guest commands — that is a different deliverable from "live YM2610 synthesis"
+and is not what P4 measured. P5 remains unmet for this reason.
+
+## P6 — phase-overlay feasibility (attempted, negative for whole modes)
+
+`tools/make_phase_pack.py` maps host-oracle profile PCs to generated routines,
+extracts their bodies and measures compiled footprint. Calibrated against the
+measured pruned set (94 routines -> 52,324 B compiled, 0.1716 B/B of source),
+the whole-mode sets are:
+
+| mode | routines | estimated compiled | fits 900 KiB WRAM-H? |
+|---|---:|---:|---|
+| boot (`noinput1200`) | 381 | 278 KiB | yes |
+| fight (`fight`) | 1,756 | 2,158 KiB | **no** |
+| playlong (`playlong`) | 2,401 | 3,491 KiB | **no** |
+
+Whole-mode phase overlays are therefore **not feasible** for fight/ending;
+only a boot phase fits. P6 would require finer sub-phases (per-stage/per-
+character), which has not been attempted here.
+
+## Render-frame search — native path produces no attract sprites
+
+`KOF_SPRITE_SCAN` samples `ng_live_sprite_strips` every 16th guest frame. With
+no pad input the guest never leaves attract mode: 88 sampled frames up to guest
+frame 1530 produced `kof_scan_hits=0`, `kof_scan_max_count=0`
+(`local/ymir/p5-spritescan2/scan.json`). I also found and fixed a latent bug:
+the unified main inherited the rawcode bench's `rendered` freeze, which halted
+the guest at frame 778 and would itself violate P5's "increasing frames" gate.
+`KOF_PAD_INPUT` + authored tape `local/profiles/tapes/fight_entry.txt` were
+added to drive the guest into a fight. With guest-frame pad cadence the app
+observed held buttons on 18/142 guest frames (`kof_pad_nonzero`,
+`local/ymir/pad-diag-gf`), confirming the tape reaches the guest, but a full
+30k-field scan still found `kof_scan_hits=0`, `kof_scan_max_count=0` through
+guest frame 1529 (`local/ymir/p5-spritescan-input/scan.json`). The native path
+therefore never produces gameplay LSPC sprites in this workload, consistent
+with the earlier finding that it cannot execute the guest-copied WRAM code
+(`X2_NATIVE_RESIDENCY.md:12-26`). Finding a render frame with sprites on the
+native path needs the P6 phase overlays / WRAM-code solution first; it is not
+achievable by moving the render-frame constant.

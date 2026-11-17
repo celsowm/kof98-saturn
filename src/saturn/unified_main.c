@@ -16,6 +16,9 @@
 #include <saturn/cd_mount.h>
 #include <saturn/cdfs.h>
 #include <saturn/ram_cart.h>
+#ifdef KOF_PAD_INPUT
+#include <saturn/input.h>
+#endif
 
 #include "ng_boot.h"
 #include "kof98/ng_live_strips.h"
@@ -69,10 +72,50 @@ volatile uint32_t kof_ym_samples;
 volatile uint32_t kof_ym_written;
 volatile uint32_t kof_ym_step;
 
+/* Diagnostic: scan a range of guest frames for nonzero LSPC sprite counts.
+ * Off by default; KOF_SPRITE_SCAN=1 enables it. The scan reuses the validated
+ * ng_live_sprite_strips decoder at a coarse cadence so it does not distort
+ * the guest timeline. */
+#ifdef KOF_SPRITE_SCAN
+volatile uint32_t kof_scan_first_frame;   /* first frame with sprites (>0) */
+volatile uint32_t kof_scan_max_count;     /* largest sprite count observed */
+volatile uint32_t kof_scan_max_frame;     /* frame of the largest count */
+volatile uint32_t kof_scan_hits;          /* number of sampled frames with sprites */
+volatile uint32_t kof_scan_samples;       /* number of frames sampled */
+#endif
+
 static void swap16(uint8_t* p, uint32_t n) {
     for (uint32_t i = 0; i + 1 < n; i += 2) { uint8_t t = p[i]; p[i] = p[i + 1]; p[i + 1] = t; }
 }
 static void fail(int line) { (void)line; sat_panic(SAT_ERR_INVALID_ARG, __FILE__, line); }
+
+#ifdef KOF_PAD_INPUT
+volatile uint32_t kof_pad_calls;
+volatile uint32_t kof_pad_nonzero;
+/* Map the Saturn pad to the Neo Geo active-high pad byte (ng_boot.h bit order:
+ * 0 up, 1 down, 2 left, 3 right, 4 A, 5 B, 6 C, 7 D). Start and coin are
+ * separate latches; Z is used for coin so a Ymir --pad-script tape can drive
+ * the game into match/fight states. */
+static void feed_pad(void) {
+    sat_pad_state_t st;
+    kof_pad_calls++;
+    if (sat_pad_poll(&st) != SAT_OK) return;
+    uint16_t h = st.held;
+    if (h) kof_pad_nonzero++;
+    uint8_t p = 0;
+    if (h & SAT_PAD_UP)    p |= 1u << 0;
+    if (h & SAT_PAD_DOWN)  p |= 1u << 1;
+    if (h & SAT_PAD_LEFT)  p |= 1u << 2;
+    if (h & SAT_PAD_RIGHT) p |= 1u << 3;
+    if (h & SAT_PAD_A)     p |= 1u << 4;
+    if (h & SAT_PAD_B)     p |= 1u << 5;
+    if (h & SAT_PAD_C)     p |= 1u << 6;
+    if (h & SAT_PAD_START) p |= 1u << 7;
+    ng_boot_set_p1(p);
+    ng_boot_set_start((h & SAT_PAD_START) ? 1 : 0);
+    ng_boot_set_coin1((h & SAT_PAD_Z) ? 1 : 0);
+}
+#endif
 
 static sat_result_t load_file(const char* path, uint8_t* dst, uint32_t bytes, uint32_t* got) {
     sat_cdfs_file_t f;
@@ -180,11 +223,35 @@ int main(void) {
 
     int rendered = 0;
     for (;;) {
-        if (rendered) { if (sat_wait_vblank() != SAT_OK) fail(__LINE__); continue; }
-        if (ng_boot_frames + 2u >= RENDER_FRAME) {
+        /* Keep the guest advancing after the one-time render: the unified
+         * build is a real-time target, not a stop-at-frame bench. VDP1 frame
+         * setup / strip decode remain gated to the render window; once drawn,
+         * the last submitted VDP1 list stays displayed while the guest runs. */
+        if (ng_boot_frames + 2u >= RENDER_FRAME && !rendered) {
             if (sat_begin_frame() != SAT_OK) fail(__LINE__);
         }
+#ifdef KOF_PAD_INPUT
+        feed_pad();
+#endif
         ng_boot_run_frames(1);
+
+#ifdef KOF_SPRITE_SCAN
+        /* Sample every 16th guest frame once past the boot window. */
+        if (ng_boot_frames >= 128u && (ng_boot_frames & 15u) == 0u) {
+            uint32_t hs = 0;
+            uint32_t sn = ng_live_sprite_strips(ng_boot_vram(), g_zoom, ng_boot_pal(),
+                                               ng_boot_anim(), ng_boot_fix_bios(), &hs);
+            kof_scan_samples++;
+            if (sn != 0u && sn != 0xFFFFFFFFu) {
+                if (kof_scan_hits == 0u) kof_scan_first_frame = ng_boot_frames;
+                kof_scan_hits++;
+                if (sn > kof_scan_max_count) {
+                    kof_scan_max_count = sn;
+                    kof_scan_max_frame = ng_boot_frames;
+                }
+            }
+        }
+#endif
 
         uint32_t n = 0, h = 0;
         if (ng_boot_frames + 2u >= RENDER_FRAME) {
@@ -206,7 +273,7 @@ int main(void) {
             (void)kof_tile_cache_end(&g_tiles.cache);
             if (dr == SAT_OK) rendered = 1;
         }
-        if (ng_boot_frames + 2u >= RENDER_FRAME) {
+        if (ng_boot_frames + 2u >= RENDER_FRAME && !rendered) {
             if (sat_end_frame() != SAT_OK) fail(__LINE__);
         }
     }

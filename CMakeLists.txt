@@ -874,6 +874,14 @@ if(KOF_BUILD_NG_BENCH)
           KOF_NG_SATURN=1 NG_BOOT_RECOMP=1 NG_BOOT_RECOMP_ONLY=1 NG_BOOT_LIVE_AUDIO=1
           LIVE_MAX_STRIPS=512 KOF_32BIT_CYCLES=1
           MUSASHI_CNF="ng_musashi_conf_boot.h")
+        option(KOF_SPRITE_SCAN "Diagnostic: scan native-path guest frames for LSPC sprites" OFF)
+        if(KOF_SPRITE_SCAN)
+          target_compile_definitions(kof_unified PRIVATE KOF_SPRITE_SCAN=1)
+        endif()
+        option(KOF_PAD_INPUT "Feed Saturn pad to the guest (authored input tapes)" OFF)
+        if(KOF_PAD_INPUT)
+          target_compile_definitions(kof_unified PRIVATE KOF_PAD_INPUT=1)
+        endif()
         target_compile_options(kof_unified PRIVATE -w)
         target_link_options(kof_unified PRIVATE
           -Wl,-u,___ashldi3 -Wl,-u,___ashrdi3 -Wl,-u,___lshrdi3)
