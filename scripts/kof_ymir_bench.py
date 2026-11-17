@@ -64,6 +64,12 @@ TARGETS = {
         "kof_live_sprite_count", "kof_live_sprite_hash", "kof_live_draw_strips",
         "kof_live_draw_native", "kof_live_draw_variants", "kof_live_draw_error",
         "kof_ym_samples", "kof_ym_written", "kof_ym_step")),
+    "unified_music": ("kof_unified_music", COMMON_SYMBOLS + RECOMP_SYMBOLS + (
+        "kof_live_sprite_count", "kof_live_sprite_hash", "kof_live_draw_strips",
+        "kof_live_draw_native", "kof_live_draw_variants", "kof_live_draw_error",
+        "kof_music_frames", "kof_music_services", "kof_music_playing",
+        "kof_music_underruns", "kof_music_refills", "kof_music_buffered",
+        "kof_music_min_buffered", "kof_music_bytes")),
     "rawcode": ("kof_ng_rawcode_bench", COMMON_SYMBOLS + RECOMP_SYMBOLS + (
         "ng_boot_game_loads", "ng_boot_game_faults", "ng_boot_game_evictions",
         "ng_boot_game_errors", "ng_boot_game_resident",

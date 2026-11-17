@@ -899,6 +899,53 @@ if(KOF_BUILD_NG_BENCH)
         libsaturn_add_disc(kof_unified ALL ROOT_FILES
           "${bios_stage}" "${p1_stage}" "${p2_stage}" "${l0_stage}" "${tile_stage}"
           "${music_stage}" "${sm1_stage_u}" "${m1_stage_u}")
+
+        # P5 experiment: same pruned native guest + gated renderer, but game
+        # audio is the pre-rendered MUSIC.BIN SCSP stream (PORTING_PLAN Phase F
+        # hybrid driver) instead of live YM2610 synthesis. Tests whether
+        # removing ~52% SH-2 audio cost meets the ~1.0x speed gate.
+        option(KOF_BUILD_UNIFIED_MUSIC "Build pre-rendered-audio unified variant" OFF)
+        if(KOF_BUILD_UNIFIED_MUSIC)
+          add_executable(kof_unified_music
+            src/saturn/unified_music_main.c src/ng/ng_boot.c src/ng/ng_boot_stats.c src/ng/ng_boot_recomp.c
+            src/ng/ng_live_strips.c src/ng/libgcc_stubs.c
+            src/saturn/resident_dispatch.c
+            src/ng/dense_routines.c src/ng/wram_rescue_routines.c
+            "${KOF_PRUNED_DIR}/pruned_native.c"
+            "${KOF_PRUNED_DIR}/pruned_resident_map.c"
+            "${KOF_PRUNED_DIR}/pruned_bios_table.c")
+          target_include_directories(kof_unified_music BEFORE PRIVATE
+            "${KOF_PRUNED_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/local/ymir/c32"
+            "${CMAKE_CURRENT_SOURCE_DIR}/local/ng_recomp_game256"
+            "${CMAKE_CURRENT_SOURCE_DIR}/build-ng/ng_bench_gen")
+          target_include_directories(kof_unified_music PRIVATE
+            src/ng src/ng/shim src/saturn include "${mus}" "${m68kgen}" "${nginc}"
+            "${bgen}" "${KOF_TILE_DIR}" "${KOF_MUSIC_DIR}")
+          target_compile_definitions(kof_unified_music PRIVATE
+            KOF_NG_SATURN=1 NG_BOOT_RECOMP=1 NG_BOOT_RECOMP_ONLY=1
+            LIVE_MAX_STRIPS=512 KOF_32BIT_CYCLES=1
+            MUSASHI_CNF="ng_musashi_conf_boot.h")
+          option(KOF_MUSIC_NO_AUDIO_UPDATE "Diagnostic: skip sat_audio_update in music slice" OFF)
+          if(KOF_MUSIC_NO_AUDIO_UPDATE)
+            target_compile_definitions(kof_unified_music PRIVATE KOF_MUSIC_NO_AUDIO_UPDATE=1)
+          endif()
+          option(KOF_MUSIC_NO_DISC_SERVICE "Diagnostic: skip sat_disc_stream_service in music slice" OFF)
+          if(KOF_MUSIC_NO_DISC_SERVICE)
+            target_compile_definitions(kof_unified_music PRIVATE KOF_MUSIC_NO_DISC_SERVICE=1)
+          endif()
+          option(KOF_MUSIC_DISABLE "Diagnostic: no music/disc-stream/slice-hook at all" OFF)
+          if(KOF_MUSIC_DISABLE)
+            target_compile_definitions(kof_unified_music PRIVATE KOF_MUSIC_DISABLE=1)
+          endif()
+          target_compile_options(kof_unified_music PRIVATE -w)
+          target_link_options(kof_unified_music PRIVATE
+            -Wl,-u,___ashldi3 -Wl,-u,___ashrdi3 -Wl,-u,___lshrdi3)
+          libsaturn_configure_executable(kof_unified_music)
+          libsaturn_add_binary(kof_unified_music MAX_BYTES 983040)
+          target_link_libraries(kof_unified_music PRIVATE kof_saturn_assets)
+          libsaturn_add_disc(kof_unified_music ALL ROOT_FILES
+            "${bios_stage}" "${p1_stage}" "${p2_stage}" "${l0_stage}" "${tile_stage}" "${music_stage}")
+        endif()
       endif()
     endif()
   endif()
