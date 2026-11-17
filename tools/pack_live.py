@@ -3,6 +3,7 @@
 import argparse
 import json
 from pathlib import Path
+import re
 import struct
 import zlib
 from pack_frame import TileSource,read_capture,RECORD
@@ -14,6 +15,39 @@ WORD=struct.Struct(">H")
 STATE=struct.Struct(f">{WORDS}H")
 LINE=struct.Struct(">3H")
 CHANGE=struct.Struct(">2H")
+STAGE_TILE_BASE=0x60000
+STAGE_PAL_BASE=64
+STAGE_CELLS=1120
+
+def stage_name(tile,pal):
+    return ((STAGE_PAL_BASE+pal)<<16)|(STAGE_TILE_BASE//32+tile)
+
+def stage_data(stage_pack):
+    data=(stage_pack/"SEQUENCE.BIN").read_bytes()
+    man=(stage_pack/"sequence_manifest.h").read_text()
+    def macro(name):
+        m=re.search(rf"#define {name} (\d+)u",man)
+        if not m:raise ValueError(f"missing {name} in stage manifest")
+        return int(m.group(1))
+    tile_off=macro("SEQ_STAGE_TILE_OFFSET");tile_bytes=macro("SEQ_STAGE_TILE_BYTES")
+    lut_off=macro("SEQ_STAGE_LUT_OFFSET");lut_bytes=macro("SEQ_STAGE_LUT_BYTES")
+    m=re.search(r"seq_resident_frames\[\]\s*=\s*\{\s*\{(\d+)u,(\d+)u",man)
+    if not m:raise ValueError("missing first stage packet")
+    pkt_off,pkt_bytes=int(m.group(1)),int(m.group(2))
+    pkt=data[pkt_off:pkt_off+pkt_bytes]
+    p=0
+    def u16():
+        nonlocal p
+        if p+2>len(pkt):raise ValueError("short stage packet")
+        v=(pkt[p]<<8)|pkt[p+1];p+=2;return v
+    n=u16();p+=n*4
+    n=u16();p+=n*6
+    n=u16();names=[stage_name(0,0)]*STAGE_CELLS
+    for _ in range(n):
+        cell=u16();tile=u16();pal=u16()
+        if cell>=STAGE_CELLS:raise ValueError("bad stage cell")
+        names[cell]=stage_name(tile,pal)
+    return data[tile_off:tile_off+tile_bytes],data[lut_off:lut_off+lut_bytes],b"".join(struct.pack(">I",x) for x in names)
 
 def fnv(data):
     h=2166136261
@@ -64,7 +98,7 @@ def load_zoom(roms):
         raise ValueError(f"L0 ROM {path} has {len(raw)} bytes; need at least 65536")
     return raw[:65536],len(raw)
 
-def build(captures,roms,out,start,count):
+def build(captures,roms,out,start,count,stage_pack=None):
     if not 1<=count<=60 or start<0:raise ValueError("select 1..60 frames")
     out.mkdir(parents=True,exist_ok=True)
     for name in ("SEQUENCE.BIN","sequence_manifest.h","sequence_report.json"):
@@ -95,11 +129,23 @@ def build(captures,roms,out,start,count):
     prefix=initial+zoom+b"".join(struct.pack(">I",i) for i in ids)
     tiles_offset=len(prefix);prefix+=b"".join(tiles[i] for i in ids)
     payload=prefix+packets
+    stage_tile_off=stage_lut_off=stage_map_off=0
+    stage_tile=stage_lut=stage_map=b""
+    if stage_pack is not None:
+        stage_tile,stage_lut,stage_map=stage_data(stage_pack)
+        payload+=b"\0"*((-len(payload))%32)
+        stage_tile_off=len(payload);payload+=stage_tile
+        stage_lut_off=len(payload);payload+=stage_lut
+        stage_map_off=len(payload);payload+=stage_map
+        print(f"stage underlay: {len(stage_tile)} tile B, {len(stage_lut)} LUT B, {len(stage_map)} map B",flush=True)
     report=dict(frames=count,first_frame=start,live_lspc=True,cart_bytes=len(payload),
                 cart_budget=LIMIT,raw_tiles=len(ids),trace_bytes=len(packets),
                 zoom_source_bytes=zoom_source_bytes,zoom_used_bytes=len(zoom),
                 zoom_crc32=zlib.crc32(zoom)&0xffffffff,
                 max_packet=max(r[1] for r in rows),max_sprite_strips=max_sprite,max_fix_strips=max_fix)
+    if stage_pack is not None:
+        report.update(stage_tile_bytes=len(stage_tile),stage_lut_bytes=len(stage_lut),
+                      stage_map_bytes=len(stage_map),stage_prefix=25)
     (out/"sequence_report.json").write_text(json.dumps(report,indent=2)+"\n")
     print(json.dumps(report,indent=2))
     if len(payload)>LIMIT:raise ValueError("raw state pack exceeds cart capacity")
@@ -107,6 +153,11 @@ def build(captures,roms,out,start,count):
               LIVE_ZOOM_OFFSET=len(initial),LIVE_INDEX_OFFSET=len(initial)+len(zoom),
               LIVE_TILES_OFFSET=tiles_offset,LIVE_TILE_COUNT=len(ids),
               LIVE_MAX_SPRITES=max_sprite,LIVE_MAX_FIX=max_fix)
+    if stage_pack is not None:
+        vals.update(LIVE_STAGE_TILE_OFFSET=stage_tile_off,LIVE_STAGE_TILE_BYTES=len(stage_tile),
+                    LIVE_STAGE_LUT_OFFSET=stage_lut_off,LIVE_STAGE_LUT_BYTES=len(stage_lut),
+                    LIVE_STAGE_MAP_OFFSET=stage_map_off,LIVE_STAGE_MAP_BYTES=len(stage_map),
+                    LIVE_STAGE_PREFIX=25)
     header="#ifndef KOF_SEQUENCE_MANIFEST_H\n#define KOF_SEQUENCE_MANIFEST_H\n#define SEQ_LIVE 1\n"
     for k,v in vals.items():header+=f"#define {k} {v}u\n"
     header+="static const seq_live_frame seq_live_frames[]={\n"
@@ -119,6 +170,7 @@ if __name__=="__main__":
     p=argparse.ArgumentParser(description=__doc__)
     for name in ("captures","roms","output"):p.add_argument(name,type=Path)
     p.add_argument("--start",type=int,default=4350);p.add_argument("--count",type=int,default=16)
+    p.add_argument("--stage-pack",type=Path,default=None)
     a=p.parse_args()
-    try:build(a.captures,a.roms,a.output,a.start,a.count)
+    try:build(a.captures,a.roms,a.output,a.start,a.count,a.stage_pack)
     except (ValueError,OSError,struct.error) as e:p.error(str(e))

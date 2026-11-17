@@ -12,6 +12,7 @@
 typedef struct {
     uint16_t map[KOF_FIX_MAP_WORDS],pal[KOF_FIX_PAL_WORDS];
     uint8_t bios,valid;
+    uint32_t hash; /* exact map/palette/bios digest; never serialized */
 } kof_fix_snapshot;
 static inline int kof_fix_state_word(unsigned idx){
     return (idx>=KOF_FIX_MAP_START&&idx<KOF_FIX_MAP_START+KOF_FIX_MAP_WORDS)||
@@ -28,9 +29,12 @@ static inline int kof_fix_snapshot_equal(const kof_fix_snapshot *s,
 }
 static inline void kof_fix_snapshot_save(kof_fix_snapshot *s,
     const uint16_t *v,const uint16_t *pal,unsigned bios){
-    for(unsigned i=0;i<KOF_FIX_MAP_WORDS;++i)s->map[i]=v[KOF_FIX_MAP_START+i];
-    for(unsigned i=0;i<KOF_FIX_PAL_WORDS;++i)s->pal[i]=pal[i];
+    uint32_t h=2166136261u;
+    for(unsigned i=0;i<KOF_FIX_MAP_WORDS;++i){s->map[i]=v[KOF_FIX_MAP_START+i];h=(h^s->map[i])*16777619u;}
+    for(unsigned i=0;i<KOF_FIX_PAL_WORDS;++i){s->pal[i]=pal[i];h=(h^s->pal[i])*16777619u;}
     s->bios=(uint8_t)bios;s->valid=1;
+    h=(h^(uint32_t)bios)*16777619u;
+    s->hash=h;
 }
 /* Look ahead only to find the next FIX-state boundary, never its values.
  * Malformed/truncated headers terminate the safe interval; the ordinary

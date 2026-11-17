@@ -128,7 +128,34 @@ def resolve_symbols(elf,build):
               'kof_sequence_live_slave_hash_wait_ticks','kof_sequence_live_slave_hash_elapsed_ticks',
               'kof_sequence_live_slave_hash_errors','kof_sequence_live_segment_schedule','kof_sequence_live_schedule_segments','kof_sequence_live_zoom_runs','kof_sequence_live_compact_build','kof_sequence_live_active_slots',
               'kof_sequence_live_independent_sprites','kof_sequence_live_sprite_epoch_lines',
-              'kof_sequence_live_sprite_skipped_boundaries')
+              'kof_sequence_live_sprite_skipped_boundaries',
+              'kof_sequence_live_build_ticks','kof_sequence_live_fix_prepare_ticks',
+              'kof_sequence_live_clear_ticks','kof_sequence_live_begin_frame_ticks',
+              'kof_sequence_live_batch_begin_ticks','kof_sequence_live_emit_sprite_ticks',
+              'kof_sequence_live_emit_fix_ticks','kof_sequence_live_batch_end_ticks',
+              'kof_sequence_live_end_frame_ticks','kof_sequence_live_vblank_ticks',
+              'kof_sequence_live_frame_ticks','kof_sequence_live_pattern_ticks',
+              'kof_sequence_live_lut_ticks','kof_sequence_live_batch_emit_ticks',
+              'kof_sequence_live_emit_cache','kof_sequence_live_pattern_reuse',
+              'kof_sequence_live_lut_reuse','kof_sequence_live_strip_carried',
+              'kof_sequence_live_hash_clean_slots','kof_sequence_live_hash_clean_prefix',
+              'kof_sequence_live_hash_clean_frames',
+              'kof_sequence_live_sprite_strips','kof_sequence_live_fix_strips',
+              'kof_sequence_live_frame_cache','kof_sequence_live_frame_cache_hits',
+              'kof_sequence_live_frame_cache_misses','kof_sequence_live_frame_cache_hits_exact',
+              'kof_sequence_live_hash_got','kof_sequence_live_hash_want',
+              'kof_sequence_live_hash_sprites','kof_sequence_live_hash_fix',
+              'kof_sequence_live_hash_offset','kof_sequence_live_cache_slot_mask',
+              'kof_sequence_live_cache_slot_replaced','kof_sequence_live_fix_cache_skip',
+              'kof_sequence_live_fix_cache_check','kof_sequence_live_fix_shadow_live',
+              'kof_sequence_live_fix_shadow_cache','kof_sequence_live_fix_pal_live',
+              'kof_sequence_live_fix_pal_cache','kof_sequence_live_fix_last_hash',
+              'kof_sequence_live_fix_snap_hash','kof_sequence_live_fix_hash_fast',
+              'kof_sequence_live_fix_hash_slow',
+              'kof_sequence_live_dbg_frame_work','kof_sequence_live_dbg_over_budget',
+              'kof_sequence_live_dbg_max_work','kof_sequence_live_dbg_max_work_idx',
+              'kof_sequence_live_dbg_reset_read_ticks',
+              'kof_sequence_live_dbg_reset_hash_ticks','kof_sequence_live_dbg_resets')
     return {k:found[k] for k in (*SYMBOLS,*optional) if k in found}
 
 def main():
@@ -164,15 +191,23 @@ def main():
              "--profile-instructions","instructions.csv","--profile-transfers","transfers.csv",
              "--misaligned-report","misaligned.txt"]
         if a.pc:cmd+=["--profile-pc","pc.csv"]
+        dump_lengths={'kof_sequence_live_dbg_frame_work':64}
         for key,address in addresses.items():
-            cmd+=["--dump-mem",f"0x{address:08x}:4:{key}.bin"]
+            n=dump_lengths.get(key,4)
+            cmd+=["--dump-mem",f"0x{address:08x}:{n}:{key}.bin"]
         for count in (1,2,8,16,17,60,145,300,599,600,601,900,1200):
             cmd+=["--screenshot-when",f"0x{addresses['kof_sequence_frames']:08x}:{count}+2:submitted-{count:04d}.png"]
         for field in sorted({0,min(119,a.frames-1),a.frames-1}):
             cmd+=["--screenshot",f"{field}:field-{field:05d}.png"]
         with (out/"probe.log").open("w",encoding="utf-8") as log:
             run_checked(cmd,cwd=out,stdout=log,stderr=subprocess.STDOUT,timeout=a.timeout)
-        state={k:struct.unpack(">I",(out/(k+".bin")).read_bytes())[0] for k in addresses}
+        state={}
+        for k in addresses:
+            b=(out/(k+".bin")).read_bytes()
+            if len(b)==4:
+                state[k]=struct.unpack(">I",b)[0]
+            else:
+                state[k]=[struct.unpack_from(">I",b,o)[0] for o in range(0,len(b),4)]
         report=json.loads((out/"probe.json").read_text())
         boot=report.get("boot",{})
         state["phase"]=STAGES.get(state["kof_sequence_stage"],"unknown")

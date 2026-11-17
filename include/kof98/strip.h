@@ -10,6 +10,12 @@ typedef struct {
     uint16_t x,y,mask,next;
     uint16_t colors[16]; /* exact guest palette words */
     uint8_t rows[16],height,width,flip;
+    /* Live emitter cache metadata. Never serialized, hashed or compared by
+     * the strip oracle. Zero means "unresolved"; the core builders clear the
+     * pattern reference whenever sampled rows change and the palette
+     * reference whenever a strip starts. */
+    uint32_t pattern_epoch,palette_epoch;
+    uint16_t pattern_slot,lut_slot;
 } kof_strip;
 typedef struct {
     kof_strip *strips;
@@ -57,6 +63,19 @@ int kof_strip_push_sprite_epoch_runs(kof_strip_builder*,const kof_lspc_schedule*
 int kof_strip_push_fix_epoch(kof_strip_builder*,const uint16_t *vram,
     const uint16_t *pal,const uint16_t versions[256],int bios,unsigned end);
 int kof_strip_complete(const kof_strip_builder*);
+/* Copy live-emitter cache metadata from a previous frame's strip chains to
+ * the current ones. A reference is carried only while the corresponding
+ * strips agree on every input of the pattern key and palette LUT (tile,
+ * mask, width, height, flip, sampled rows and raw palette words); x/y may
+ * differ because they are not part of either key. Carried slots are still
+ * generation-checked before use, so an evicted entry simply falls back to
+ * the slow resolver. Returns the number of strips that received metadata.
+ * When clean is non-NULL, clean[slot] is set for chains that are identical
+ * in every hashed field as well (x/y included), so a sequential hash may
+ * resume from a boundary after such slots. The core strip representation
+ * remains untouched; these fields are never hashed or serialized. */
+unsigned kof_strip_carry_cache(kof_strip_builder *cur,const kof_strip_builder *prev,
+                               uint8_t *clean);
 /* Iterate head[0..380], then next: preserves slot painter order. */
 /* 1: original 16x16 pattern reusable, flips returned separately. */
 int kof_strip_valid(const kof_strip*);

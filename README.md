@@ -6,7 +6,66 @@ Experimental native Sega Saturn port of The King of Fighters '98, using [KOF98 R
 
 - [Engineering plan](docs/PORTING_PLAN.md)
 - [Cross-port study: Tekken3 and Ikemen Saturn](docs/CROSS_PORT_ENGINEERING.md)
+- [Music on Saturn](docs/MUSIC_ON_SATURN.md)
 - [Contributor instructions](AGENTS.md)
+
+**Status by pillar.** The Saturn SH-2 now **runs the real game** and **draws its
+picture**: it executes the Neo Geo BIOS and KOF98's own 68000 code (18.8 M cart
+instructions from the P ROM on the 4 MiB cart) via the Musashi interpreter, and
+resolves the live guest LSPC strips to 4bpp C-ROM textures and draws them via
+VDP1 (140/140 strips, 0 errors; see [Native 68000 boot](docs/NATIVE_68000_BOOT.md);
+Ymir evidence). It is correct but **slow** (interpreter, ~1,700 frames in 20,000
+emulated fields, not 60 FPS). The native recomp (X2) path is now demonstrated and
+integrated into the shared core: `ng_boot.c` gains a recomp dispatcher (native
+entry vs Musashi fallback, IRQ at routine boundaries) that is **bit-exact vs the
+interpreter over 1200 frames of the real BIOS at ~4.5x the speed** (`ng_boot_recomp`
+ctest; the standalone `ng_recomp_host` shows ~6x), and it cross-compiles for SH-2.
+It now also runs on a Saturn target with **no interpreter linked** (`kof_ng_bench_recomp`,
+666 KB, 100% native, 0 bad dispatches): **0.31x real time in Ymir = 4.55x the
+interpreter**, i.e. still ~3x short of 60 Hz. Dropping Musashi needs a recomp-only
+core (`NG_BOOT_RECOMP_ONLY`, no fallback), which fits WRAM-H but only for the BIOS.
+The **full game now executes natively on Saturn** via the disc-backed rawcode
+overlay: a clean sustained Ymir run
+(`local/ymir/rawcode-measure6`, `docs/X2_NATIVE_RESIDENCY.md`) performed
+**739,605 native game routines with 0 dispatch misses, 0 load errors, 21 disc
+page loads, at 0.2324x real time**. A 32-bit cycle-counter prototype
+(`KOF_32BIT_CYCLES`, bit-exact over 268,275 host blocks) cut generated code ~29%
+and gave a 0.2668x reading with 848,938 blocks. The earlier 0.2324x/0.2668x
+figures were invalid stuck-loop artifacts; paged-overlay runs reached only
+0.0074x (disc-bandwidth wall). Correct dispatch and residency work.
+
+**Profile-guided dense emitter (2026-11-17):** an authoritative Ymir SH-2
+instruction profile (`tools/sh2_profile_symbols.py`) showed time was concentrated
+in a handful of guest loops, so 15 measured, bit-exact optimizations were built:
+hand-written dense handlers for the hot BIOS VRAM/palette fill and clear loops
+(keeping guest registers, cycles, icount and CCR in SH-2 registers), a verified
+direct-mapped dispatch cache, and fast paths in the shared slow-write helpers.
+The fully-resident bench (`kof_resident_bench`) went from **0.3538x to ~1.0x
+real time**: a final 30k-field Ymir run reached **0.9973x** (29,919 guest
+frames, 9.9M native blocks, `bad=0`, zero paging, no stall) — essentially 60 Hz
+for native game logic. Guest-visible device-write counters are byte-identical
+to baseline per guest frame, and the host oracle reports 7,327,802 blocks with
+0 mismatches. A 32-bit guest-cycle epoch rebase fixed a signed-overflow freeze
+at frame 10591 (my earlier diagnosis of a sound-CPU handshake was wrong — see
+the correction in [X2 native residency](docs/X2_NATIVE_RESIDENCY.md)); the guest
+now runs continuously. This is emulator (Ymir) evidence only — NOT
+physical-console timing — and the bench has no renderer or audio. See
+[X2 native residency](docs/X2_NATIVE_RESIDENCY.md) for every measurement and
+negative result. A playable port still needs the renderer on the **real-time**
+native path (the dense handlers + verified dispatch are wired into the
+renderer-enabled `kof_ng_rawcode_bench` with `bad=0`, but the recomp-only
+overlay cannot execute the BIOS-copied WRAM routine, so it draws 0 strips —
+see [X2 native residency]), live Z80/YM2610 audio, and physical-console proof.
+Routine **overlay/paging is host-proven**: an 8-page split served by a 3-page
+budget is bit-exact over 1200 frames (10 loads, 7 evictions, 318,020 native
+dispatches, 0 interpreted). But a game-side size measurement closes the
+"recompile everything" door: the real P1 generates 874,188 instructions and
+24-37 B of SH-2 text each, so the full P ROM would be **~38-58 MB**, far beyond
+the <1.5 MB executable budget. Only a measured hot subset can be native; that
+profile is the next step ([Native 68000 boot](docs/NATIVE_68000_BOOT.md)). The **real KOF98 soundtrack plays on Saturn** (SCSP; the standalone probe is content-verified, envelope corr 0.958 at 22.05 kHz; the integrated app streams it with 0 underruns but its captured content is not yet verified — see [Music on
+Saturn](docs/MUSIC_ON_SATURN.md)). Remaining: profile and select the native hot
+set, live Z80/YM2610 sound, all modes, and physical-console proof. Emulator
+evidence only.
 
 ## ROM-free host tests
 

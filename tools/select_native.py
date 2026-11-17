@@ -30,16 +30,30 @@ def read_profile(path, identity, keys):
 
 
 def read_sizes(path, names):
-    """Read target nm -S --radix=d --defined-only output for routine objects."""
+    """Read target nm -S --defined-only output for routine objects. Sizes may
+    be decimal (test fixtures, --radix=d) or hex (sh2eb-elf-nm prints hex
+    regardless of --radix=d), and the C symbol has a leading underscore the
+    table name does not."""
     sizes = {}
     for line in path.read_text().splitlines():
         fields = line.split()
-        if len(fields) != 4 or fields[3] not in names:
+        if len(fields) != 4:
             continue
         _, size, kind, name = fields
-        if kind not in ('T','t') or name in sizes or int(size) <= 0:
+        if name.startswith('_'):
+            name = name[1:]
+        if name not in names:
+            continue
+        try:
+            if len(size) == 8 and all(c in '0123456789abcdef' for c in size):
+                size = int(size, 16)  # nm's zero-padded 8-digit hex
+            else:
+                size = int(size)      # decimal fixture or short hex without letters
+        except ValueError:
+            size = int(size, 16)
+        if kind not in ('T','t') or name in sizes or size <= 0:
             raise ValueError(f'invalid or duplicate text symbol: {name}')
-        sizes[name] = int(size)
+        sizes[name] = size
     if set(sizes) != names:
         raise ValueError('target size report missing routine symbols')
     return sizes

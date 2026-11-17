@@ -1,0 +1,326 @@
+/* kof_music - native 68000 Neo Geo boot on Saturn, now booting the GAME,
+ * drawing its picture and playing the game's own soundtrack.
+ *
+ * Loads the real AES system BIOS (BIOS.BIN), the game P ROM (P1 1 MiB + P2
+ * first 3 MiB) into the CPU-mapped 4 MiB expansion cart, and the L0 zoom ROM
+ * (L0.BIN). Boots the BIOS on the Musashi 68000 core over the compact Neo Geo
+ * bus (src/ng/ng_boot.c); the BIOS hands off to KOF98's own code. At a chosen
+ * frame the live guest LSPC state is decoded into ordered strips and drawn via
+ * VDP1, resolving each strip's 16x16 4bpp tile from a C ROM tile-residency pack
+ * (TILES.BIN, loaded into a Work RAM arena since the cart is full of P ROM).
+ *
+ * Music: after the disc loads settle, the built-in CD music feed
+ * (sat_disc_stream_music_start) streams the real KOF98 soundtrack - PCM16
+ * S16BE produced by the pinned oracle's own Z80 + YM2610 execution of the
+ * game program - through the SCSP (docs/MUSIC_ON_SATURN.md). Every field
+ * services the disc scheduler and the SCSP driver alongside the game frame.
+ *
+ * This is the interpreter path (correct, slow). Emulator evidence only.
+ */
+#include <saturn/core.h>
+#include <saturn/video.h>
+#include <saturn/audio.h>
+#include <saturn/cd_mount.h>
+#include <saturn/cdfs.h>
+#include <saturn/disc_stream.h>
+#include <saturn/ram_cart.h>
+#include <saturn/dma.h>
+
+#include "ng_boot.h"
+#include "kof98/ng_live_strips.h"
+#include "kof98/asset_store.h"
+#include "kof98/tile_cache.h"
+#include "kof98/saturn_tile_cache.h"
+#include "kof98/saturn_strip_renderer.h"
+#include "tile_manifest.h"          /* kof_local_tile_assets[] from pack_live_frame.py */
+#include "kof_music_assets.h"       /* KOF_MUSIC_* from tools/convert_music.py */
+
+#define MUSIC_DISC_PATH "MUSIC.BIN"
+
+#define P1_BYTES   0x100000u
+#define P2_BYTES   0x300000u
+#define CART_BYTES 0x400000u
+#define RENDER_FRAME 778u            /* the frame the tile pack was built from */
+
+static sat_cd_block_t g_block;
+static sat_cd_device_t g_device;
+static sat_cdfs_volume_t g_volume;
+static sat_disc_stream_t g_disc;        /* CD scheduler that owns the drive */
+static sat_disc_music_rings_t g_rings;
+static sat_ram_cart_buffer_t g_cart;
+
+static uint8_t g_bios_raw[0x20000] __attribute__((section(".wram_l")));
+static uint8_t g_chunk[0x10000] __attribute__((section(".wram_l")));
+static uint8_t g_zoom[0x10000] __attribute__((section(".wram_l")));
+
+/* Tile-residency store: source = TILES.BIN from CD, arena = Work RAM (the cart
+ * is full of P ROM). */
+static uint8_t g_tile_src[0x10000] __attribute__((section(".wram_l")));
+static uint8_t g_tile_arena[0x10000] __attribute__((section(".wram_l")));
+static uint32_t g_tile_src_size;
+static kof_asset_store g_store;
+static kof_tile_view g_view;
+static kof_saturn_tile_cache g_tiles;
+static kof_saturn_strip_renderer g_renderer;
+static uint8_t g_scratch[2048];
+
+/* Counters (dumped by the probe). */
+volatile uint32_t kof_live_sprite_count;
+volatile uint32_t kof_live_sprite_hash;
+volatile uint32_t kof_live_ng_cycles;
+volatile uint32_t kof_live_draw_strips;     /* strips the renderer drew at RENDER_FRAME */
+volatile uint32_t kof_live_draw_native;
+volatile uint32_t kof_live_draw_variants;
+volatile uint32_t kof_live_tile_uploads;    /* pattern/LUT uploads to VDP1 */
+volatile uint32_t kof_live_draw_error;      /* first renderer error, SAT_OK none */
+
+/* Music counters. Same names as the isolated kof_music target so the Ymir
+ * harness (scripts/kof_ymir_music.py) reads this integrated app unchanged. */
+volatile uint32_t kof_music_frames;
+volatile uint32_t kof_music_services;
+volatile uint32_t kof_music_playing;
+volatile uint32_t kof_music_underruns;
+volatile uint32_t kof_music_refills;
+volatile uint32_t kof_music_buffered;
+volatile uint32_t kof_music_min_buffered;
+volatile uint32_t kof_music_bytes;
+volatile uint32_t kof_music_last_error;
+/* Diagnostic: the CDFS lookup result for MUSIC.BIN, dumped by the probe to
+ * compare against the ISO walk (LBA 353). */
+volatile uint32_t kof_music_extent_lba;
+volatile uint32_t kof_music_extent_size;
+
+static void swap16(uint8_t* p, uint32_t n);
+static void fail(int line);
+
+/* Copy the music feed state into the probe counters. Used by the slice hook
+ * (services inside the guest frame) and by the main-loop tail. */
+static void music_stats_refresh(void) {
+    uint32_t underruns = 0u, refills = 0u, buffered = 0u;
+    sat_disc_stream_music_stats(&g_disc, &underruns, &refills, &buffered);
+    kof_music_services = g_disc.stats.music_segments;
+    kof_music_underruns = underruns;
+    kof_music_refills = refills;
+    kof_music_buffered = buffered;
+    kof_music_min_buffered = g_disc.stats.music_min_buffered;
+    kof_music_bytes = g_disc.stats.music_bytes;
+    kof_music_playing = sat_disc_stream_music_playing(&g_disc) ? 1u : 0u;
+    if (g_block.progress_error_count != 0u)
+        kof_music_last_error = (uint32_t)g_block.progress_last_error;
+}
+
+/* Real-time services from inside the guest frame. One guest frame spans many
+ * emulated display fields on the interpreter, so the services cannot run from
+ * the app's frame loop (which runs once per guest frame). They run from the
+ * core's slice hook (ng_music_slice):
+ *   - the disc scheduler gated by the emulated SH-2 cycle counter
+ *     (ng_boot_cycles_lo) to ~every 10 ms - servicing it on every hook call
+ *     starved the SCSP streams (9 underruns measured);
+ *   - the SCSP streams (sat_audio_update) on every hook call - the rate the
+ *     streams consume (~45-60/s emulated). */
+/* Diagnostics: raw hook invocations vs gate-passed services. */
+volatile uint32_t kof_music_hook_calls;
+volatile uint32_t kof_music_gate_pass;
+/* Diagnostic: DMA stats (scu vs cpu copies) to see whether the SCU-DMA runs. */
+volatile uint32_t kof_music_dma_scu;
+volatile uint32_t kof_music_dma_cpu;
+volatile uint32_t kof_music_dma_bytes_scu;
+volatile uint32_t kof_music_dma_bytes_cpu;
+/* Diagnostic: the field counter the audio clock reads. */
+volatile uint32_t kof_music_field_count;
+static void ng_copy(void* dst, const void* src, uint32_t n);
+/* Diagnostic: the first landed music segment's buffers (256 bytes each) and a
+ * flag so the probe knows they are valid. */
+volatile uint32_t kof_music_seg_landed;
+uint8_t g_seg_snap0[512] __attribute__((section(".wram_l")));
+uint8_t g_seg_snap1[512] __attribute__((section(".wram_l")));
+
+#define NG_DISC_CYCLES    7670u     /* ~10 ms between drive services */
+
+static void ng_music_slice(void) {
+    kof_music_hook_calls++;
+    const uint32_t now = ng_boot_cycles_lo();
+    static uint32_t s_last_disc;
+    /* Disc scheduler: every ~10 ms of emulated time (7670 cycles at 7.67 MHz). */
+    if ((uint32_t)(now - s_last_disc) >= NG_DISC_CYCLES) {
+        s_last_disc = now;
+        if (sat_disc_stream_service(&g_disc) != SAT_OK)
+            kof_music_last_error = (uint32_t)g_disc.stats.last_error;
+        /* Diagnostic: after the first music segment lands, snapshot the first
+         * 512 bytes of each ring so the probe can compare against MUSIC.BIN. */
+        if (kof_music_seg_landed == 0u && g_disc.stats.music_segments != 0u) {
+            kof_music_seg_landed = 1u;
+            ng_copy(g_seg_snap0, g_rings.left, 512u);
+            ng_copy(g_seg_snap1, g_rings.right, 512u);
+        }
+    }
+    /* SCSP streams: service on every slice hook call. */
+    if (sat_audio_update() != SAT_OK) fail(__LINE__);
+    kof_music_gate_pass++;
+    kof_music_field_count = sat_field_count();
+    music_stats_refresh();
+    {
+        sat_dma_stats_t st;
+        sat_dma_get_stats(&st);
+        kof_music_dma_scu = st.scu_transfers;
+        kof_music_dma_cpu = st.cpu_copies;
+        kof_music_dma_bytes_scu = st.bytes_scu;
+        kof_music_dma_bytes_cpu = st.bytes_cpu;
+    }
+}
+
+static sat_result_t load_to_cart(const char* path, uint32_t dst, uint32_t total) {
+    sat_cdfs_file_t f;
+    SAT_TRY(sat_cdfs_lookup(&g_volume, path, &f));
+    if (f.directory || f.size < total) return SAT_ERR_INVALID_ARG;
+    for (uint32_t done = 0; done < total; ) {
+        uint32_t n = total - done;
+        if (n > sizeof(g_chunk)) n = sizeof(g_chunk);
+        uint32_t got = 0;
+        SAT_TRY(sat_cdfs_read_at(&g_volume, &f, done, g_chunk, n, &got));
+        if (got != n) return SAT_ERR_INVALID_ARG;
+        swap16(g_chunk, n);
+        SAT_TRY(sat_ram_cart_buffer_write_at(&g_cart, dst + done, g_chunk, n));
+        done += n;
+    }
+    return SAT_OK;
+}
+
+static void fail(int line) { (void)line; sat_panic(SAT_ERR_INVALID_ARG, __FILE__, line); }
+
+static void ng_copy(void* dst, const void* src, uint32_t n) {
+    uint8_t* d = (uint8_t*)dst; const uint8_t* s = (const uint8_t*)src;
+    for (uint32_t i = 0; i < n; i++) d[i] = s[i];
+}
+
+static int src_read(void* ctx, uint32_t off, void* dst, uint32_t n) {
+    (void)ctx; ng_copy(dst, g_tile_src + off, n); return 0;
+}
+static int arena_read(void* ctx, uint32_t off, void* dst, uint32_t n) {
+    (void)ctx; ng_copy(dst, g_tile_arena + off, n); return 0;
+}
+static int arena_write(void* ctx, uint32_t off, const void* src, uint32_t n) {
+    (void)ctx; ng_copy(g_tile_arena + off, src, n); return 0;
+}
+
+static void swap16(uint8_t* p, uint32_t n) {
+    for (uint32_t i = 0; i + 1 < n; i += 2) { uint8_t t = p[i]; p[i] = p[i + 1]; p[i + 1] = t; }
+}
+
+static sat_result_t load_file(const char* path, uint8_t* dst, uint32_t bytes, uint32_t* out_got) {
+    sat_cdfs_file_t f;
+    SAT_TRY(sat_cdfs_lookup(&g_volume, path, &f));
+    return sat_cdfs_read_at(&g_volume, &f, 0, dst, bytes, out_got);
+}
+
+int main(void) {
+    const sat_video_config_t cfg = {320, 224, SAT_VIDEO_NTSC, SAT_VIDEO_INTERLACE_NONE};
+    if (sat_init(&cfg) != SAT_OK) fail(__LINE__);
+    if (sat_vdp1_set_frame_mode(SAT_VDP1_FRAME_ON_SUBMIT) != SAT_OK) fail(__LINE__);
+    if (sat_set_clear_color(0x0000u) != SAT_OK) fail(__LINE__);
+    if (sat_audio_init() != SAT_OK) fail(__LINE__);
+    if (sat_cd_mount_default(&g_block, 0, 0, &g_device, 0, &g_volume) != SAT_OK) fail(__LINE__);
+    if (sat_disc_stream_init(&g_disc, &g_block) != SAT_OK) fail(__LINE__);
+
+    /* 4 MiB cart holds the game P ROM. */
+    sat_ram_cart_info_t info;
+    if (sat_ram_cart_init() != SAT_OK) fail(__LINE__);
+    if (sat_ram_cart_info(&info) != SAT_OK) fail(__LINE__);
+    if (info.type != SAT_RAM_CART_4MB || info.capacity != CART_BYTES || info.bank_count != 2)
+        sat_panic(SAT_ERR_UNSUPPORTED, __FILE__, __LINE__);
+    if (sat_ram_cart_buffer_alloc(CART_BYTES, 32, &g_cart) != SAT_OK) fail(__LINE__);
+
+    /* Load P1 + P2 (first 3 MiB) into the cart, byte-swapped to 68k order. */
+    if (load_to_cart("P1.BIN", 0, P1_BYTES) != SAT_OK) fail(__LINE__);
+    if (load_to_cart("P2.BIN", P1_BYTES, P2_BYTES) != SAT_OK) fail(__LINE__);
+
+    /* BIOS, L0 zoom, tile-residency pack. */
+    {
+        uint32_t got = 0;
+        if (load_file("BIOS.BIN", g_bios_raw, sizeof(g_bios_raw), &got) != SAT_OK || got != sizeof(g_bios_raw)) fail(__LINE__);
+        swap16(g_bios_raw, sizeof(g_bios_raw));
+        if (load_file("L0.BIN", g_zoom, sizeof(g_zoom), &got) != SAT_OK || got < sizeof(g_zoom)) fail(__LINE__);
+        sat_cdfs_file_t f;
+        if (sat_cdfs_lookup(&g_volume, "TILES.BIN", &f) != SAT_OK) fail(__LINE__);
+        if (sat_cdfs_read_at(&g_volume, &f, 0, g_tile_src, f.size, &got) != SAT_OK || got != f.size) fail(__LINE__);
+        g_tile_src_size = f.size;
+    }
+
+    /* Tile-residency store: source = TILES.BIN in WRAM, arena = WRAM. */
+    if (kof_asset_init(&g_store, sizeof(g_tile_arena), g_tile_src_size, src_read, 0,
+                       arena_read, arena_write, 0) != KOF_ASSET_OK) fail(__LINE__);
+    kof_asset_result ar;
+    if (kof_asset_begin(&g_store, kof_local_tile_assets, 2u) != KOF_ASSET_OK) fail(__LINE__);
+    do { ar = kof_asset_step(&g_store, g_scratch, sizeof(g_scratch)); } while (ar == KOF_ASSET_PENDING);
+    if (ar != KOF_ASSET_OK) fail(__LINE__);
+    if (kof_tile_view_open(&g_view, &g_store) != KOF_ASSET_OK) fail(__LINE__);
+    if (kof_asset_enter_combat(&g_store) != KOF_ASSET_OK) fail(__LINE__);
+    if (kof_saturn_tile_cache_init(&g_tiles) != SAT_OK) fail(__LINE__);
+    if (kof_saturn_strip_renderer_init(&g_renderer, &g_tiles) != SAT_OK) fail(__LINE__);
+
+    ng_boot_set_cart(g_cart.bank[0], g_cart.bank_bytes[0], g_cart.bank[1], g_cart.bank_bytes[1]);
+    ng_boot_init(g_bios_raw, sizeof(g_bios_raw));
+
+    /* The real soundtrack: one CDFS lookup while the drive is still quiet, then
+     * the built-in CD music feed owns the drive for the rest of the run. Every
+     * payload read so far used synchronous CDFS reads before this point. */
+    sat_cdfs_file_t music_file;
+    if (sat_cdfs_lookup(&g_volume, MUSIC_DISC_PATH, &music_file) != SAT_OK) fail(__LINE__);
+    if (music_file.size != KOF_MUSIC_BYTES) fail(__LINE__);
+    /* Diagnostic: expose the lookup result so the probe can read it and
+     * compare to the ISO walk (MUSIC.BIN at LBA 353). */
+    kof_music_extent_lba = music_file.extent_lba;
+    kof_music_extent_size = music_file.size;
+    /* MUSIC.BIN is S16BE (tools/convert_music.py output, 22.05 kHz stereo):
+     * sample_bytes=2 selects SAT_AUDIO_PCM_S16. */
+    if (sat_disc_stream_music_start(&g_disc, &g_rings, &music_file, KOF_MUSIC_BYTES,
+                                    KOF_MUSIC_SAMPLE_RATE, 2u) != SAT_OK) fail(__LINE__);
+
+    /* Keep the disc/audio services running while the guest executes: one
+     * guest frame spans many emulated fields on the interpreter, and the
+     * rings must be refilled at field cadence (see ng_music_slice). */
+    ng_boot_set_slice_hook(ng_music_slice, 4000u);
+
+    int rendered = 0;
+    for (;;) {
+        /* Real-time services run from the slice hook (ng_music_slice), not
+         * here: one iteration is a whole guest frame, and the SCSP streams
+         * must be serviced at field cadence inside it. */
+        if (rendered) {
+            /* Once the frame is drawn, stop submitting new (empty) lists so the
+             * VDP1 keeps the rendered picture displayed; the music and the
+             * guest keep running. */
+            if (sat_wait_vblank() != SAT_OK) fail(__LINE__);
+        } else {
+            if (sat_begin_frame() != SAT_OK) fail(__LINE__);
+            ng_boot_run_frames(1);
+
+            uint32_t h = 0;
+            uint32_t n = ng_live_sprite_strips(ng_boot_vram(), g_zoom, ng_boot_pal(),
+                                               ng_boot_anim(), ng_boot_fix_bios(), &h);
+            kof_live_sprite_count = n;
+            kof_live_sprite_hash = (n == 0xFFFFFFFFu) ? 0u : h;
+            kof_live_ng_cycles = ng_boot_cycles_lo();
+
+            if (ng_boot_frames == RENDER_FRAME && n != 0xFFFFFFFFu) {
+                kof_emit_stats stats;
+                sat_result_t dr = kof_saturn_strip_draw(&g_renderer, ng_live_builder(), &g_view, &stats);
+                kof_live_draw_error = (uint32_t)dr;
+                if (dr == SAT_OK) {
+                    kof_live_draw_strips = ng_live_builder()->count;
+                    kof_live_draw_native = stats.native;
+                    kof_live_draw_variants = stats.variants;
+                    kof_live_tile_uploads = g_tiles.cache.tile_misses + g_tiles.cache.lut_misses;
+                }
+                (void)kof_tile_cache_end(&g_tiles.cache);
+                if (dr == SAT_OK) rendered = 1;
+            }
+
+            if (sat_end_frame() != SAT_OK) fail(__LINE__);
+            if (sat_wait_vblank() != SAT_OK) fail(__LINE__);
+        }
+
+        music_stats_refresh();
+        ++kof_music_frames;
+    }
+}

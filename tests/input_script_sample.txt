@@ -1,0 +1,6 @@
+# ROM-free fixture for tests/test_ng_input_script.c (reference script format).
+# Frame numbers and buttons only; no game data.
+10 start
+20-25 right+a
+30 p2down+p2b
+40 coin+select

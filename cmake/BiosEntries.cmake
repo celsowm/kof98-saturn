@@ -1,0 +1,35 @@
+# BIOS seeds: top-31 by hits + 0xC00444 (m68krecomp cap 32)
+set(BIOS_EXTRA_ENTRIES
+  --entry 0xC00438
+  --entry 0xC00444
+  --entry 0xC0044A
+  --entry 0xC1137A
+  --entry 0xC11398
+  --entry 0xC1139C
+  --entry 0xC113AE
+  --entry 0xC113BC
+  --entry 0xC113C0
+  --entry 0xC113DC
+  --entry 0xC1141A
+  --entry 0xC11502
+  --entry 0xC116A8
+  --entry 0xC16F0E
+  --entry 0xC16F12
+  --entry 0xC16F16
+  --entry 0xC16F1A
+  --entry 0xC16F28
+  --entry 0xC16F40
+  --entry 0xC16F5C
+  --entry 0xC16F9E
+  --entry 0xC16FB0
+  --entry 0xC16FBA
+  --entry 0xC16FC4
+  --entry 0xC16FE8
+  --entry 0xC16FF0
+  --entry 0xC17040
+  --entry 0xC17068
+  --entry 0xC17074
+  --entry 0xC1707E
+  --entry 0xC17126
+  --entry 0xC17130
+)

@@ -35,6 +35,7 @@ int kof_strip_push(kof_strip_builder *b,const kof_line_ir *ir,const uint16_t *pa
             *s=(kof_strip){.tile=p->tile,.x=p->x,.y=b->line,.mask=p->mask,.next=KOF_STRIP_END,.width=p->width,.flip=p->flip};
             memcpy(s->colors,colors,32);
         }
+        s->pattern_epoch=0;
         s->rows[s->height++]=p->row;++b->spans;
     }
     ++b->line;return 0;
@@ -81,6 +82,7 @@ int kof_strip_push_versioned(kof_strip_builder *b,const kof_line_ir *ir,const ui
             memcpy(s->colors,colors,32u);
         }
         b->palette_token[p->slot]=token;
+        s->pattern_epoch=0;
         s->rows[s->height++]=p->row;++b->spans;
     }
     ++b->line;return 0;
@@ -105,6 +107,7 @@ static int append_run(kof_strip_builder *b,unsigned slot,unsigned y,uint32_t til
         unsigned take=16u-s->height;if(take>n)take=n;
         for(unsigned i=0;i<take;++i)s->rows[s->height+i]=rows[i];
         s->height=(uint8_t)(s->height+take);b->spans+=take;
+        s->pattern_epoch=0;
         y+=take;rows+=take;n-=take;
     }
     if(n){
@@ -117,6 +120,7 @@ static int append_run(kof_strip_builder *b,unsigned slot,unsigned y,uint32_t til
          * The unused row suffix MUST be zero for the KFR2 oracle. */
         s->tile=tile;s->x=(uint16_t)x;s->y=(uint16_t)y;s->mask=mask;
         s->next=KOF_STRIP_END;s->width=(uint8_t)width;s->flip=(uint8_t)flip;s->height=(uint8_t)n;
+        s->pattern_epoch=0;s->palette_epoch=0;
         s->colors[0]=colors[0];s->colors[1]=colors[1];
         s->colors[2]=colors[2];s->colors[3]=colors[3];
         s->colors[4]=colors[4];s->colors[5]=colors[5];
@@ -292,6 +296,54 @@ int kof_strip_push_epoch(kof_strip_builder *b,kof_strip_builder *f,
     return 0;
 }
 int kof_strip_complete(const kof_strip_builder *b){return b&&b->strips&&!b->failed&&b->line==224u;}
+typedef uint32_t __attribute__((__may_alias__)) unaligned_word;
+static uint32_t load_word(const void *p){
+    /* -ffreestanding keeps GCC from expanding even __builtin_memcpy here;
+     * may_alias gives the intended single load without a per-word jsr. */
+    return *(const unaligned_word *)p;
+}
+/* Everything pattern_get/lut_get read from a strip, except x/y. Width is
+ * derived from mask but compared too so the emitted size cannot change
+ * without invalidating the carried reference. All 16 row bytes and all 16
+ * palette words are initialized by the builder, so fixed-width word
+ * compares are exact. Chain links are irrelevant. */
+static int cache_inputs_equal(const kof_strip *a,const kof_strip *b){
+    if(a->tile!=b->tile||a->mask!=b->mask||a->width!=b->width||
+       a->height!=b->height||a->flip!=b->flip)return 0;
+    /* Do not compare the padding byte after flip. */
+    uint32_t d=0;
+    for(unsigned i=0;i<8u;++i)
+        d|=load_word(&a->colors[i*2u])^load_word(&b->colors[i*2u]);
+    if(d)return 0;
+    for(unsigned i=0;i<4u;++i)
+        d|=load_word(&a->rows[i*4u])^load_word(&b->rows[i*4u]);
+    return d==0;
+}
+unsigned kof_strip_carry_cache(kof_strip_builder *cur,const kof_strip_builder *prev,
+                               uint8_t *clean){
+    if(!cur||!prev||!cur->strips||!prev->strips)return 0;
+    unsigned carried=0;
+    for(unsigned slot=0;slot<KOF_STRIP_SLOTS;++slot){
+        uint16_t a=cur->head[slot],b=prev->head[slot];
+        int slot_clean=1;
+        /* Only an unchanged prefix is safe: a later strip can shift to a
+         * different chain position, so do not try to resynchronize. */
+        while(a!=KOF_STRIP_END&&b!=KOF_STRIP_END){
+            kof_strip *s=&cur->strips[a];const kof_strip *q=&prev->strips[b];
+            if(!cache_inputs_equal(s,q)){slot_clean=0;break;}
+            /* x/y are outside the pattern/LUT keys but inside the record
+             * hash, so they only affect the clean flag. */
+            if(s->x!=q->x||s->y!=q->y)slot_clean=0;
+            s->pattern_slot=q->pattern_slot;s->pattern_epoch=q->pattern_epoch;
+            s->lut_slot=q->lut_slot;s->palette_epoch=q->palette_epoch;
+            ++carried;
+            a=s->next;b=q->next;
+        }
+        if(a!=KOF_STRIP_END||b!=KOF_STRIP_END)slot_clean=0;
+        if(clean)clean[slot]=(uint8_t)slot_clean;
+    }
+    return carried;
+}
 int kof_strip_valid(const kof_strip *s){
     if(!s||!s->height||s->height>16u||!s->width||s->width!=pop(s->mask)||s->flip>1u||s->x+s->width>320u||s->y+s->height>224u)return 0;
     for(unsigned i=0;i<s->height;++i)if(s->rows[i]>=16u)return 0;

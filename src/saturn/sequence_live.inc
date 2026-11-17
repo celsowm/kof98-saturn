@@ -125,8 +125,86 @@ volatile uint32_t kof_sequence_live_versioned_strips,kof_sequence_live_palette_c
 static _Alignas(32) uint16_t live_state[LIVE_STATE_WORDS];
 static _Alignas(32) uint8_t zoom[KOF_ZOOM_BYTES];
 static _Alignas(32) uint32_t tile_ids[LIVE_TILE_COUNT];
-static kof_strip sprite_strips[LIVE_MAX_SPRITES],fix_strips[LIVE_MAX_FIX];
+#ifndef KOF_LIVE_EMIT_CACHE
+#define KOF_LIVE_EMIT_CACHE 0
+#endif
+#ifndef KOF_LIVE_STAGE_VDP2
+#define KOF_LIVE_STAGE_VDP2 0
+#endif
+#if KOF_LIVE_STAGE_VDP2
+#define LIVE_STAGE_SKIP 25u
+#else
+#define LIVE_STAGE_SKIP 0u
+#endif
+#ifndef KOF_LIVE_FRAME_CACHE
+#define KOF_LIVE_FRAME_CACHE 0
+#endif
+#ifndef KOF_LIVE_FRAME_CACHE_VBLANK_WAIT
+#define KOF_LIVE_FRAME_CACHE_VBLANK_WAIT 0
+#endif
+#if KOF_LIVE_FRAME_CACHE && (!KOF_LIVE_FIX_REUSE || !KOF_LIVE_FIX_VDP2)
+#error Frame cache requires independent FIX reuse and VDP2 FIX
+#endif
+#if KOF_LIVE_FRAME_CACHE
+#define LIVE_CACHE_ENTRIES 64u
+#define LIVE_CACHE_BASE 0x80000u
+#define LIVE_CACHE_CMD_WORDS ((LIVE_MAX_SPRITES+LIVE_MAX_FIX)*8u)
+#define LIVE_CACHE_FIX_BYTES ((sizeof(kof_fix_snapshot)+31u)&~31u)
+#define LIVE_CACHE_FIX_OFF 0u
+#define LIVE_CACHE_CMD_OFF (LIVE_CACHE_FIX_BYTES)
+#define LIVE_CACHE_ENTRY_BYTES ((LIVE_CACHE_CMD_OFF+LIVE_CACHE_CMD_WORDS*4u+31u)&~31u)
+typedef struct {
+    uint32_t valid,start_hash,start_sum,trace_offset;
+    uint32_t final_hash,final_sum;
+    uint32_t hash,sprites,fix,cmd_words,fix_vdp2;
+    uint32_t shadow_hash,pal_hash;
+    uint32_t last_used;
+    uint32_t pat_pin[(LIVE_PAT_SLOTS+31u)/32u];
+    uint32_t lut_pin[(LIVE_LUT_SLOTS+31u)/32u];
+} live_cache_meta;
+static live_cache_meta live_cache_meta_arr[LIVE_CACHE_ENTRIES];
+static uint32_t pat_pin_count[LIVE_PAT_SLOTS],lut_pin_count[LIVE_LUT_SLOTS];
+static uint32_t frame_pat_pin[(LIVE_PAT_SLOTS+31u)/32u];
+static uint32_t frame_lut_pin[(LIVE_LUT_SLOTS+31u)/32u];
+volatile uint32_t kof_sequence_live_frame_cache,kof_sequence_live_frame_cache_hits;
+volatile uint32_t kof_sequence_live_frame_cache_misses,kof_sequence_live_frame_cache_hits_exact;
+volatile uint32_t kof_sequence_live_cache_slot_mask,kof_sequence_live_cache_slot_replaced;
+#endif
+volatile uint32_t kof_sequence_live_fix_cache_skip,kof_sequence_live_fix_cache_check;
+volatile uint32_t kof_sequence_live_fix_shadow_live,kof_sequence_live_fix_shadow_cache;
+volatile uint32_t kof_sequence_live_fix_pal_live,kof_sequence_live_fix_pal_cache;
+volatile uint32_t kof_sequence_live_fix_last_hash,kof_sequence_live_fix_snap_hash;
+volatile uint32_t kof_sequence_live_fix_hash_fast,kof_sequence_live_fix_hash_slow;
+#if KOF_LIVE_FRAME_CACHE
+static uint32_t live_state_hash,live_state_sum;
+static inline uint32_t live_mix16(uint16_t w){return (uint32_t)w*0x9e3779b1u;}
+static void live_state_hash_init(void){
+    uint32_t h=0,sum=0;
+    for(unsigned i=0;i<LIVE_STATE_WORDS;++i){h^=live_mix16(live_state[i]);sum+=live_state[i];}
+    live_state_hash=h;live_state_sum=sum;
+}
+static inline void live_state_hash_set(unsigned idx,uint16_t oldv,uint16_t newv){
+    live_state_hash^=live_mix16(oldv)^live_mix16(newv);
+    live_state_sum=live_state_sum-oldv+newv;
+}
+#endif
+/* Alternating sprite-strip buffers keep the previous frame's exact strip
+ * content available for a content-based cache carry. The builder never
+ * reads the previous buffer except in kof_strip_carry_cache, so live
+ * decoding still depends only on the current field's trace. The second
+ * buffer is only reserved when the carry is enabled; it costs
+ * LIVE_MAX_SPRITES*kof_strip bytes and is pure overhead otherwise. */
+#if KOF_LIVE_EMIT_CACHE
+static kof_strip sprite_strips[2][LIVE_MAX_SPRITES],fix_strips[LIVE_MAX_FIX];
+static kof_strip_builder sprites,sprites_prev,fix;
+static unsigned sprite_strip_buffer,sprites_prev_valid;
+static uint8_t sprite_clean[KOF_STRIP_SLOTS];
+#define LIVE_SPRITE_STRIP_BUFFER (sprite_strips[sprite_strip_buffer])
+#else
+static kof_strip sprite_strips[1][LIVE_MAX_SPRITES],fix_strips[LIVE_MAX_FIX];
 static kof_strip_builder sprites,fix;
+#define LIVE_SPRITE_STRIP_BUFFER (sprite_strips[0])
+#endif
 #if !KOF_LIVE_EPOCHS
 static kof_line_ir ir,fix_ir;
 #endif
@@ -140,10 +218,37 @@ volatile uint32_t kof_sequence_live_schedule_ticks,kof_sequence_live_line_ticks;
 volatile uint32_t kof_sequence_live_strip_ticks,kof_sequence_live_hash_ticks;
 volatile uint32_t kof_sequence_live_cache_ticks,kof_sequence_live_read_ticks;
 volatile uint32_t kof_sequence_live_timed_frames;
+/* Attribution counters: boundaries of existing phases only, no extra
+ * work inside a strip or scanline. */
+volatile uint32_t kof_sequence_live_build_ticks,kof_sequence_live_fix_prepare_ticks;
+volatile uint32_t kof_sequence_live_clear_ticks,kof_sequence_live_begin_frame_ticks;
+volatile uint32_t kof_sequence_live_batch_begin_ticks,kof_sequence_live_emit_sprite_ticks;
+volatile uint32_t kof_sequence_live_emit_fix_ticks,kof_sequence_live_batch_end_ticks;
+volatile uint32_t kof_sequence_live_end_frame_ticks,kof_sequence_live_vblank_ticks;
+volatile uint32_t kof_sequence_live_frame_ticks;
+/* Diagnostic: worst work (ticks) seen for each trace frame index, plus the
+ * over-budget count and the single worst frame. Read only at shutdown; it
+ * does not affect output, hashes, pacing or any validation. */
+#ifndef KOF_LIVE_FRAME_PROFILE
+#define KOF_LIVE_FRAME_PROFILE 1
+#endif
+#if KOF_LIVE_FRAME_PROFILE
+volatile uint32_t kof_sequence_live_dbg_frame_work[16];
+volatile uint32_t kof_sequence_live_dbg_over_budget,kof_sequence_live_dbg_max_work,kof_sequence_live_dbg_max_work_idx;
+volatile uint32_t kof_sequence_live_dbg_reset_read_ticks,kof_sequence_live_dbg_reset_hash_ticks,kof_sequence_live_dbg_resets;
+#endif
+#ifndef KOF_LIVE_EMIT_PROFILE
+#define KOF_LIVE_EMIT_PROFILE 0
+#endif
+volatile uint32_t kof_sequence_live_pattern_ticks,kof_sequence_live_lut_ticks;
+volatile uint32_t kof_sequence_live_batch_emit_ticks;
 static uint32_t ticks(void){return (uint32_t)sat_time_ticks();}
 static kof_asset_handle asset;
 static uint32_t atlas_base,stamp;
 volatile uint32_t kof_sequence_live_verified,kof_sequence_live_hash_errors;
+volatile uint32_t kof_sequence_live_hash_got,kof_sequence_live_hash_want;
+volatile uint32_t kof_sequence_live_hash_sprites,kof_sequence_live_hash_fix;
+volatile uint32_t kof_sequence_live_hash_offset;
 volatile uint32_t kof_sequence_live_cache_hits,kof_sequence_live_cache_misses;
 volatile uint32_t kof_sequence_live_lut_hits,kof_sequence_live_lut_misses;
 volatile uint32_t kof_sequence_live_trace_fields,kof_sequence_live_lspc_fields,kof_sequence_live_draw_fields;
@@ -153,11 +258,17 @@ typedef kof_pattern_key pattern_key;
 #else
 typedef struct {uint32_t tile;uint16_t mask;uint8_t h,flip,rows[16];} pattern_key;
 #endif
-typedef struct {pattern_key key;uint32_t stamp;uint16_t next;uint8_t valid,opaque;} pattern_entry;
-typedef struct {uint16_t colors[16];uint32_t stamp;uint8_t valid;} lut_entry;
+typedef struct {pattern_key key;uint32_t stamp,generation;uint16_t next,flags;uint8_t valid,opaque;} pattern_entry;
+typedef struct {uint16_t colors[16];uint32_t stamp,generation;uint8_t valid;} lut_entry;
 _Static_assert(sizeof(pattern_key)==(KOF_LIVE_PACKED_KEYS?16u:24u),"pattern key layout");
 static pattern_entry patterns[LIVE_PAT_SLOTS];
 static lut_entry luts[LIVE_LUT_SLOTS];
+volatile uint32_t kof_sequence_live_emit_cache,kof_sequence_live_pattern_reuse;
+volatile uint32_t kof_sequence_live_lut_reuse,kof_sequence_live_strip_carried;
+volatile uint32_t kof_sequence_live_hash_clean_slots,kof_sequence_live_hash_clean_prefix;
+volatile uint32_t kof_sequence_live_hash_clean_frames;
+volatile uint32_t kof_sequence_live_sprite_strips,kof_sequence_live_fix_strips;
+static uint32_t pattern_generation_serial,lut_generation_serial;
 volatile uint32_t kof_sequence_live_lut_memo,kof_sequence_live_lut_memo_hits,kof_sequence_live_lut_memo_fallbacks;
 #if KOF_LIVE_LUT_MEMO
 static kof_lut_memo lut_memo;
@@ -173,17 +284,22 @@ static uint32_t take(const uint8_t **p,const uint8_t *end){
     uint32_t n=((uint32_t)(*p)[0]<<8)|(*p)[1];*p+=2;return n;
 }
 #if KOF_LIVE_RANGE_SCHEDULE
-/* Conservative lookahead: stop before any control write, even a no-op.
- * Do not consume the trace or use future values. Bounds checked here;
- * full packet validation still happens in the normal reader. */
-static unsigned control_until(const uint8_t *p,const uint8_t *end,unsigned line){
+/* Lookahead: stop before a control write that actually changes the value.
+ * No-op writes are skipped because the ordinary reader will not mark the
+ * schedule dirty for them. Do not consume the trace or use future values.
+ * Bounds checked here; full packet validation happens in the normal reader. */
+static unsigned control_until(const uint8_t *p,const uint8_t *end,unsigned line,
+                              const uint16_t *v){
     while(line<224u){
         if((size_t)(end-p)<6u)return line;
         unsigned n=((unsigned)p[4]<<8)|p[5];p+=6;
         if((size_t)(end-p)<n*4u)return line;
         for(unsigned j=0;j<n;++j,p+=4){
             unsigned idx=((unsigned)p[0]<<8)|p[1];
-            if(idx>=0x8000u&&idx<KOF_LSPC_WORDS)return line;
+            if(idx>=0x8000u&&idx<KOF_LSPC_WORDS){
+                unsigned val=((unsigned)p[2]<<8)|p[3];
+                if(v[idx]!=val)return line;
+            }
         }
         ++line;
     }
@@ -215,6 +331,9 @@ static uint32_t strip_hash(uint32_t h,const kof_strip_builder *b,unsigned bias){
 }
 static void verify_hash(const seq_live_frame *f,uint32_t h){
     if(h!=f->hash||sprites.count!=f->sprites||fix.count!=f->fix){
+        kof_sequence_live_hash_got=h;kof_sequence_live_hash_want=f->hash;
+        kof_sequence_live_hash_sprites=sprites.count;kof_sequence_live_hash_fix=fix.count;
+        kof_sequence_live_hash_offset=f->offset;
         ++kof_sequence_live_hash_errors;check(0);
     }
     ++kof_sequence_live_verified;
@@ -224,16 +343,13 @@ static void verify_hash(const seq_live_frame *f,uint32_t h){
 #endif
 static void build_strips(const seq_live_frame *f){
     uint32_t start=sat_field_count();
-    uint32_t t=ticks();
-    read_live(f->offset,scratch,f->bytes);
-    kof_sequence_live_read_ticks+=ticks()-t;
-    kof_sequence_live_trace_fields+=sat_field_count()-start;
-    start=sat_field_count();
+    uint32_t whole=ticks();
+    uint32_t t;
     const uint8_t *p=scratch,*end=scratch+f->bytes;
 #if KOF_LIVE_VERSIONED_STRIPS
     memset(palette_versions,0,sizeof palette_versions);
 #endif
-    check(!kof_strip_begin(&sprites,sprite_strips,LIVE_MAX_SPRITES));
+    check(!kof_strip_begin(&sprites,LIVE_SPRITE_STRIP_BUFFER,LIVE_MAX_SPRITES));
 #if KOF_LIVE_FIX_REUSE
     unsigned fix_until=0;
 #if KOF_LIVE_FIX_MAP_REUSE
@@ -262,6 +378,9 @@ static void build_strips(const seq_live_frame *f){
                 ++palette_versions[(idx-KOF_LSPC_WORDS)>>4];
                 ++kof_sequence_live_palette_changes;
             }
+#endif
+#if KOF_LIVE_FRAME_CACHE
+            live_state_hash_set(idx,live_state[idx],(uint16_t)val);
 #endif
             live_state[idx]=(uint16_t)val;
         }
@@ -302,7 +421,7 @@ static void build_strips(const seq_live_frame *f){
 #if KOF_LIVE_RANGE_SCHEDULE
         if(schedule_dirty||y>=schedule_until){
             t=ticks();
-            schedule_until=control_until(p,end,y+1u);
+            schedule_until=control_until(p,end,y+1u,live_state);
             check(schedule_until>y);
 #if KOF_LIVE_SEGMENT_SCHEDULE
             unsigned segments;
@@ -417,13 +536,60 @@ static void build_strips(const seq_live_frame *f){
 #endif
     }
     check(p==end&&kof_strip_complete(&sprites)&&kof_strip_complete(&fix));
+    kof_sequence_live_sprite_strips=sprites.count;
+    kof_sequence_live_fix_strips=fix.count;
+#if KOF_LIVE_EMIT_CACHE
+    /* The previous buffer is the immediately preceding field, never a
+     * selected trace frame: a carry proves the emitter inputs are equal,
+     * not that a frame index or loop position repeated. */
+    if(sprites_prev_valid){
+        kof_sequence_live_strip_carried+=kof_strip_carry_cache(&sprites,&sprites_prev,
+                                                               sprite_clean);
+        unsigned prefix=0,cleaned=0;
+        while(prefix<KOF_STRIP_SLOTS&&sprite_clean[prefix])++prefix;
+        for(unsigned slot=0;slot<KOF_STRIP_SLOTS;++slot)cleaned+=sprite_clean[slot];
+        kof_sequence_live_hash_clean_prefix+=prefix;
+        kof_sequence_live_hash_clean_slots+=cleaned;
+        if(prefix==KOF_STRIP_SLOTS)++kof_sequence_live_hash_clean_frames;
+    }else memset(sprite_clean,0,sizeof sprite_clean);
+    sprites_prev=sprites;sprites_prev_valid=1;
+    sprite_strip_buffer^=1u;
+#endif
 #if !KOF_LIVE_SLAVE_HASH
     t=ticks();
     verify_hash(f,strip_hash(strip_hash(2166136261u,&sprites,0),&fix,524288u));
     kof_sequence_live_hash_ticks+=ticks()-t;
 #endif
     kof_sequence_live_lspc_fields+=sat_field_count()-start;
+    kof_sequence_live_build_ticks+=ticks()-whole;
 }
+/* Exact trace application without strip construction.  Used only on a frame
+ * cache hit, where the strips and commands are already cached and verified. */
+#if KOF_LIVE_FRAME_CACHE
+static void live_apply_trace(const seq_live_frame *f){
+    /* The packet is CRC-checked and was fully validated by the reader that
+     * built the cached entry; apply the same ordered writes without the
+     * per-line/per-write diagnostic checks.  The packet is even-aligned and
+     * uses big-endian halfwords. */
+    typedef uint16_t __attribute__((__may_alias__)) unaligned_half;
+    const uint8_t *p=scratch,*end=scratch+f->bytes;
+    for(unsigned y=0;y<224u;++y){
+        if((size_t)(end-p)<6u)return;
+        unsigned n=(unsigned)*(const unaligned_half*)(const void*)(p+4);
+        p+=6;
+        for(unsigned j=0;j<n;++j){
+            if((size_t)(end-p)<4u)return;
+            unsigned idx=(unsigned)*(const unaligned_half*)(const void*)p;
+            unsigned val=(unsigned)*(const unaligned_half*)(const void*)(p+2);
+            p+=4;
+            if(idx<LIVE_STATE_WORDS)live_state[idx]=(uint16_t)val;
+        }
+    }
+#if KOF_LIVE_SCHEDULED
+    schedule_dirty=1;
+#endif
+}
+#endif
 static unsigned key_bucket(const pattern_key *key){
 #if KOF_LIVE_PACKED_KEYS
     return kof_pattern_key_hash(key)&(LIVE_BUCKETS-1u);
@@ -447,8 +613,20 @@ static void raw_tile(uint32_t id,uint8_t out[128]){
     check(lo<LIVE_TILE_COUNT&&tile_ids[lo]==id);
     read_live(LIVE_TILES_OFFSET+lo*128u,out,128u);
 }
-static void upload_live(uint32_t off,const void *src,uint32_t bytes){
-    SAT_PANIC_IF_ERROR(sat_vdp1_vram_write(atlas_base+off,src,bytes));
+/* A freshly assigned pattern/LUT slot is never referenced by the command list
+ * being drawn (the referencing sprite is only submitted at sat_end_frame), so
+ * it does not need the VDP1 fence inside sat_vdp1_vram_write; write it through
+ * the no-wait CPU alias to keep the cold-cache first loop off the VBlank wait.
+ * A slot reused after eviction may still be read by the list being drawn, so it
+ * keeps the fenced writer. */
+static void upload_live(uint32_t off,const void *src,uint32_t bytes,int evicted){
+    if(evicted){
+        SAT_PANIC_IF_ERROR(sat_vdp1_vram_write(atlas_base+off,src,bytes));
+    }else{
+        volatile void *dst=sat_vdp1_vram_address(atlas_base+off,bytes);
+        check(dst!=NULL);
+        memcpy((void*)dst,src,bytes);
+    }
     kof_sequence_upload_bytes+=bytes;++kof_sequence_upload_runs;
 }
 static unsigned pattern_get(const kof_strip *s,unsigned bias,uint16_t *width,uint16_t *flags){
@@ -476,7 +654,11 @@ static unsigned pattern_get(const kof_strip *s,unsigned bias,uint16_t *width,uin
     unsigned i=LIVE_PAT_SLOTS;
     for(unsigned j=0;j<LIVE_PAT_SLOTS;++j){
         unsigned k=(victim+j)&(LIVE_PAT_SLOTS-1u);
-        if(!patterns[k].valid||patterns[k].stamp!=stamp){i=k;break;}
+        if((!patterns[k].valid||patterns[k].stamp!=stamp)
+#if KOF_LIVE_FRAME_CACHE
+           &&!pat_pin_count[k]
+#endif
+           ){i=k;break;}
     }
     check(i<LIVE_PAT_SLOTS);
     victim=(uint16_t)((i+1u)&(LIVE_PAT_SLOTS-1u));
@@ -492,8 +674,12 @@ static unsigned pattern_get(const kof_strip *s,unsigned bias,uint16_t *width,uin
     if(!native){check(!kof_strip_pixels(s,raw,converted,width));pixels=converted;}
     unsigned opaque=0;
     for(unsigned j=0;j<128u;++j)opaque|=pixels[j];
-    if(opaque)upload_live(i*128u,pixels,128u);
+    if(opaque)upload_live(i*128u,pixels,128u,e->valid);
     e->key=key;e->stamp=stamp;e->valid=1;e->opaque=opaque!=0;
+    e->flags=*flags;
+    /* A zero generation means "unresolved"; skip it on wrap. */
+    if(!++pattern_generation_serial)++pattern_generation_serial;
+    e->generation=pattern_generation_serial;
     e->next=buckets[bucket];buckets[bucket]=(uint16_t)i;
     return i;
 }
@@ -519,11 +705,17 @@ static unsigned lut_get(const kof_strip *s){
     unsigned i=LIVE_LUT_SLOTS;
     for(unsigned j=0;j<LIVE_LUT_SLOTS;++j){
         unsigned k=(lut_victim+j)&(LIVE_LUT_SLOTS-1u);
-        if(!luts[k].valid||luts[k].stamp!=stamp){i=k;break;}
+        if((!luts[k].valid||luts[k].stamp!=stamp)
+#if KOF_LIVE_FRAME_CACHE
+           &&!lut_pin_count[k]
+#endif
+           ){i=k;break;}
     }
     check(i<LIVE_LUT_SLOTS);lut_victim=(uint16_t)((i+1u)&(LIVE_LUT_SLOTS-1u));
-    upload_live(LIVE_PAT_SLOTS*128u+i*32u,colors,32u);
+    upload_live(LIVE_PAT_SLOTS*128u+i*32u,colors,32u,luts[i].valid);
     memcpy(luts[i].colors,colors,32u);luts[i].valid=1;luts[i].stamp=stamp;
+    if(!++lut_generation_serial)++lut_generation_serial;
+    luts[i].generation=lut_generation_serial;
 #if KOF_LIVE_LUT_MEMO
     /* Invalidate every old alias lazily, including raw palettes that
      * converted to the same LUT. Generation zero is reserved for empty. */
@@ -534,29 +726,100 @@ static unsigned lut_get(const kof_strip *s){
 #endif
     return i;
 }
-static unsigned emit_live(sat_sprite_batch_window_t *win,const kof_strip_builder *b,unsigned bias,
-                          const sat_sprite_frame_t prefixes[4]){
-    unsigned count=0;
+#if KOF_LIVE_EMIT_CACHE
+/* Reuse a resolved pattern entry only while its generation proves that the
+ * exact same key is still resident. The core strip builder clears the epoch
+ * whenever sampled rows change, so a stale reference never survives a new
+ * strip or an appended row. Stamp pinning is identical to the slow path. */
+static unsigned pattern_reuse(kof_strip *s,unsigned bias,uint16_t *width,uint16_t *flags){
+    if(s->pattern_epoch&&s->pattern_slot<LIVE_PAT_SLOTS){
+        const unsigned i=s->pattern_slot;
+        if(patterns[i].generation==s->pattern_epoch){
+            *width=(uint16_t)((s->width+7u)&~7u);
+            *flags=patterns[i].flags;
+            patterns[i].stamp=stamp;
+            ++kof_sequence_live_pattern_reuse;
+            return i;
+        }
+    }
+    const unsigned i=pattern_get(s,bias,width,flags);
+    s->pattern_slot=(uint16_t)i;
+    s->pattern_epoch=patterns[i].generation;
+    return i;
+}
+static unsigned lut_reuse(kof_strip *s){
+    if(s->palette_epoch&&s->lut_slot<LIVE_LUT_SLOTS){
+        const unsigned i=s->lut_slot;
+        if(luts[i].generation==s->palette_epoch){
+            luts[i].stamp=stamp;
+            ++kof_sequence_live_lut_hits;++kof_sequence_live_lut_reuse;
+            return i;
+        }
+    }
+    const unsigned i=lut_get(s);
+    s->lut_slot=(uint16_t)i;
+    s->palette_epoch=luts[i].generation;
+    return i;
+}
+#else
+#define pattern_reuse pattern_get
+#define lut_reuse lut_get
+#endif
+static unsigned emit_live(sat_sprite_batch_window_t *win,kof_strip_builder *b,unsigned bias,
+                          const sat_sprite_frame_t prefixes[4],unsigned skip){
+    unsigned count=0,skipped=0;
     for(unsigned slot=0;slot<KOF_STRIP_SLOTS;++slot)
       for(uint16_t i=b->head[slot];i!=KOF_STRIP_END;i=b->strips[i].next){
-        const kof_strip *s=&b->strips[i];uint16_t width,flags;
+        kof_strip *s=&b->strips[i];
+        if(skipped<skip){++skipped;continue;}
+        uint16_t width,flags;
 #if !KOF_LIVE_PACKED_KEYS
         check(kof_strip_valid(s));
 #endif
-        unsigned t=pattern_get(s,bias,&width,&flags);
+#if KOF_LIVE_EMIT_PROFILE
+        uint32_t q=ticks();
+#endif
+        unsigned t=pattern_reuse(s,bias,&width,&flags);
+#if KOF_LIVE_FRAME_CACHE
+        frame_pat_pin[t>>5]|=1u<<(t&31u);
+#endif
+#if KOF_LIVE_EMIT_PROFILE
+        kof_sequence_live_pattern_ticks+=ticks()-q;
+#endif
         if(!patterns[t].opaque)continue;
-        unsigned l=lut_get(s);
+#if KOF_LIVE_EMIT_PROFILE
+        q=ticks();
+#endif
+        unsigned l=lut_reuse(s);
+#if KOF_LIVE_FRAME_CACHE
+        frame_lut_pin[l>>5]|=1u<<(l&31u);
+#endif
+#if KOF_LIVE_EMIT_PROFILE
+        kof_sequence_live_lut_ticks+=ticks()-q;
+#endif
         sat_sprite_frame_t sprite=prefixes[flags>>5];
         sprite.srca=(uint16_t)(atlas_base/8u+t*16u);
         sprite.colr=(uint16_t)(atlas_base/8u+LIVE_PAT_SLOTS*16u+l*4u);
         sprite.size=(uint16_t)(((width/8u)<<8)|s->height);
+#if KOF_LIVE_EMIT_PROFILE
+        q=ticks();
+#endif
         check(sat_sprite_batch_emit(win,&sprite,s->x,s->y)==1);
+#if KOF_LIVE_EMIT_PROFILE
+        kof_sequence_live_batch_emit_ticks+=ticks()-q;
+#endif
         ++count;
       }
     return count;
 }
 #if KOF_LIVE_FIX_VDP2
 #include "sequence_live_fix.inc"
+#endif
+#if KOF_LIVE_FRAME_CACHE
+#include "sequence_live_cache.inc"
+#endif
+#if KOF_LIVE_STAGE_VDP2
+#include "sequence_live_stage.inc"
 #endif
 int main(void){
     const sat_video_config_t cfg={320,224,SAT_VIDEO_NTSC,SAT_VIDEO_INTERLACE_NONE};
@@ -589,6 +852,9 @@ int main(void){
 #if KOF_LIVE_FIX_VDP2
     lf_init();kof_sequence_live_fix_vdp2=1;
 #endif
+#if KOF_LIVE_STAGE_VDP2
+    live_stage_init();
+#endif
     sat_sprite_frame_t prefixes[4];
     for(unsigned i=0;i<4u;++i)
         SAT_PANIC_IF_ERROR(sat_sprite_frame_init_raw(&prefixes[i],(uint16_t)(atlas_base/8u),
@@ -599,6 +865,10 @@ int main(void){
     kof_sequence_live_range_schedule=KOF_LIVE_RANGE_SCHEDULE;
     kof_sequence_live_segment_schedule=KOF_LIVE_SEGMENT_SCHEDULE;
     kof_sequence_live_lut_memo=KOF_LIVE_LUT_MEMO;
+    kof_sequence_live_emit_cache=KOF_LIVE_EMIT_CACHE;
+#if KOF_LIVE_FRAME_CACHE
+    kof_sequence_live_frame_cache=KOF_LIVE_FRAME_CACHE;
+#endif
     kof_sequence_live_packed_keys=KOF_LIVE_PACKED_KEYS;
     kof_sequence_live_fix_reuse=KOF_LIVE_FIX_REUSE;
     kof_sequence_live_zoom_memo=KOF_LIVE_ZOOM_MEMO;
@@ -612,8 +882,27 @@ int main(void){
 #endif
     kof_sequence_live_timer_hz=sat_time_frequency_hz();
     kof_sequence_live_frame_count=sizeof seq_live_frames/sizeof seq_live_frames[0];
+    /* The trace is an exact loop: every warm frame is an exact cache hit whose
+     * start hash equals the initial state hash.  The incremental hash is
+     * maintained on hits (final_hash) and misses (live_state_hash_set), so the
+     * full O(state-words) hash_init is only needed once to seed it.  Recompute
+     * it a single time here and restore it in O(1) on each loop reset instead
+     * of rescanning every state word every 16 frames. */
+#if KOF_LIVE_FRAME_CACHE
+    read_live(0,live_state,sizeof live_state);
+    live_state_hash_init();
+    const uint32_t initial_hash=live_state_hash,initial_sum=live_state_sum;
+#endif
     for(;;){
+        uint32_t rr=ticks();
         read_live(0,live_state,sizeof live_state);
+        kof_sequence_live_dbg_reset_read_ticks+=ticks()-rr;
+#if KOF_LIVE_FRAME_CACHE
+        rr=ticks();
+        live_state_hash=initial_hash;live_state_sum=initial_sum;
+        kof_sequence_live_dbg_reset_hash_ticks+=ticks()-rr;
+#endif
+        ++kof_sequence_live_dbg_resets;
 #if KOF_LIVE_SCHEDULED
         schedule_dirty=1;
 #endif
@@ -621,6 +910,84 @@ int main(void){
             const seq_live_frame *f=&seq_live_frames[i];
             check(f->bytes<=sizeof scratch);
             kof_sequence_stage=5;
+#if !KOF_LIVE_FRAME_CACHE || KOF_LIVE_FRAME_CACHE_VBLANK_WAIT
+            /* The cache fast path can remove the vblank wait to submit the
+             * latest exact frame as soon as it is ready; the normal path and
+             * the vblank-paced cache keep the original field pacing. */
+            uint32_t v0=ticks();
+            SAT_PANIC_IF_ERROR(sat_wait_vblank());
+            kof_sequence_live_vblank_ticks+=ticks()-v0;
+#endif
+            uint32_t frame_start=ticks();
+            uint32_t field_start=sat_field_count();
+            uint32_t t0=ticks();
+            read_live(f->offset,scratch,f->bytes);
+            kof_sequence_live_read_ticks+=ticks()-t0;
+            kof_sequence_live_trace_fields+=sat_field_count()-field_start;
+#if KOF_LIVE_FRAME_CACHE
+            const uint32_t start_hash=live_state_hash;
+            const uint32_t start_sum=live_state_sum;
+            memset(frame_pat_pin,0,sizeof frame_pat_pin);
+            memset(frame_lut_pin,0,sizeof frame_lut_pin);
+            const int cache_hit=live_cache_find(f);
+            if(cache_hit>=0){
+                live_cache_use((unsigned)cache_hit,f);
+                uint32_t start=sat_field_count(),draw_start=ticks();
+                if(++stamp==0){for(unsigned j=0;j<LIVE_PAT_SLOTS;++j)patterns[j].stamp=0;
+                    for(unsigned j=0;j<LIVE_LUT_SLOTS;++j)luts[j].stamp=0;stamp=1;}
+                const live_cache_meta *m=&live_cache_meta_arr[cache_hit];
+                unsigned fix_vdp2=0;
+#if KOF_LIVE_FIX_VDP2
+                t0=ticks();fix_vdp2=(unsigned)lf_prepare();lf_flush();
+                kof_sequence_live_fix_prepare_ticks+=ticks()-t0;
+#endif
+                t0=ticks();
+                SAT_PANIC_IF_ERROR(sat_set_clear_color(f->bg));
+                kof_sequence_live_clear_ticks+=ticks()-t0;
+                t0=ticks();
+                SAT_PANIC_IF_ERROR(sat_begin_frame());
+                kof_sequence_live_begin_frame_ticks+=ticks()-t0;
+                sat_sprite_batch_window_t win;
+                const uint32_t cmd_words=m->cmd_words;
+                t0=ticks();
+                SAT_PANIC_IF_ERROR(sat_sprite_batch_begin(&win,cmd_words/8u,
+                    SAT_SPRITE_BATCH_KEEP_PRECLIP|SAT_SPRITE_BATCH_NO_CULL));
+                check((uint32_t)(win.limit-win.base)>=cmd_words);
+                if(cmd_words)live_cache_cart_read(live_cache_entry_off((unsigned)cache_hit)+
+                    LIVE_CACHE_CMD_OFF,win.base,cmd_words*4u);
+                win.next=win.base+cmd_words;win.culled=win.dropped=win.no_preclip=0;
+                kof_sequence_live_batch_begin_ticks+=ticks()-t0;
+                sat_sprite_batch_stats_t stats;
+                t0=ticks();
+                SAT_PANIC_IF_ERROR(sat_sprite_batch_end(&win,&stats));
+                kof_sequence_live_batch_end_ticks+=ticks()-t0;
+                check(stats.submitted==cmd_words/8u&&!stats.culled&&!stats.dropped&&!stats.invalid);
+                kof_sequence_live_draw_fields+=sat_field_count()-start;
+                kof_sequence_live_cache_ticks+=ticks()-draw_start;
+                ++kof_sequence_live_timed_frames;
+                kof_sequence_stage=4;
+#if KOF_LIVE_FIX_VDP2
+                lf_serial=sat_vdp1_list_serial()+1u;
+#endif
+                t0=ticks();
+                SAT_PANIC_IF_ERROR(sat_end_frame());
+                kof_sequence_live_end_frame_ticks+=ticks()-t0;
+                {
+                    uint32_t wt=ticks()-frame_start;
+                    kof_sequence_live_frame_ticks+=wt;
+#if KOF_LIVE_FRAME_PROFILE
+                    if(wt>kof_sequence_live_dbg_frame_work[i])kof_sequence_live_dbg_frame_work[i]=wt;
+                    if(wt>3510u)++kof_sequence_live_dbg_over_budget;
+                    if(wt>kof_sequence_live_dbg_max_work){kof_sequence_live_dbg_max_work=wt;kof_sequence_live_dbg_max_work_idx=i;}
+#endif
+                }
+                kof_sequence_index=i;kof_sequence_commands=(uint32_t)stats.submitted;++kof_sequence_frames;
+                continue;
+            }
+            const unsigned cache_slot=live_cache_pick();
+            kof_sequence_live_frame_cache++;
+            live_cache_begin(cache_slot,start_hash,start_sum,f);
+#endif
             build_strips(f);
 #if KOF_LIVE_SLAVE_HASH
             live_hash_dispatch();
@@ -630,17 +997,28 @@ int main(void){
                 for(unsigned j=0;j<LIVE_LUT_SLOTS;++j)luts[j].stamp=0;stamp=1;}
             unsigned fix_vdp2=0;
 #if KOF_LIVE_FIX_VDP2
-            fix_vdp2=(unsigned)lf_prepare();
+            t0=ticks();fix_vdp2=(unsigned)lf_prepare();lf_flush();
+            kof_sequence_live_fix_prepare_ticks+=ticks()-t0;
 #endif
+            t0=ticks();
             SAT_PANIC_IF_ERROR(sat_set_clear_color(f->bg));
+            kof_sequence_live_clear_ticks+=ticks()-t0;
+            t0=ticks();
             SAT_PANIC_IF_ERROR(sat_begin_frame());
+            kof_sequence_live_begin_frame_ticks+=ticks()-t0;
             sat_sprite_batch_window_t win;
+            t0=ticks();
             SAT_PANIC_IF_ERROR(sat_sprite_batch_begin(&win,sprites.count+(fix_vdp2?0u:fix.count),
                 SAT_SPRITE_BATCH_KEEP_PRECLIP|SAT_SPRITE_BATCH_NO_CULL));
-            unsigned count=emit_live(&win,&sprites,0,prefixes);
-            if(!fix_vdp2)count+=emit_live(&win,&fix,524288u,prefixes);
+            kof_sequence_live_batch_begin_ticks+=ticks()-t0;
+            t0=ticks();unsigned count=emit_live(&win,&sprites,0,prefixes,LIVE_STAGE_SKIP);
+            kof_sequence_live_emit_sprite_ticks+=ticks()-t0;
+            t0=ticks();if(!fix_vdp2)count+=emit_live(&win,&fix,524288u,prefixes,0);
+            kof_sequence_live_emit_fix_ticks+=ticks()-t0;
             sat_sprite_batch_stats_t stats;
+            t0=ticks();
             SAT_PANIC_IF_ERROR(sat_sprite_batch_end(&win,&stats));
+            kof_sequence_live_batch_end_ticks+=ticks()-t0;
             check(count==stats.submitted&&!stats.culled&&!stats.dropped&&!stats.invalid);
             kof_sequence_live_draw_fields+=sat_field_count()-start;
             kof_sequence_live_cache_ticks+=ticks()-draw_start;
@@ -649,16 +1027,32 @@ int main(void){
              * has acknowledged this immutable set of strips. */
             live_hash_join(f);
 #endif
+#if KOF_LIVE_FRAME_CACHE
+            /* Store the immutable output only after the exact ordered hash
+             * and counts matched.  The map hash is finalized after the swap. */
+            live_cache_store(cache_slot,f,(uint32_t)stats.submitted*8u,&win);
+#endif
             ++kof_sequence_live_timed_frames;
             kof_sequence_stage=4;
 #if KOF_LIVE_FIX_VDP2
             lf_serial=sat_vdp1_list_serial()+1u;
 #endif
+            t0=ticks();
             SAT_PANIC_IF_ERROR(sat_end_frame());
-            SAT_PANIC_IF_ERROR(sat_wait_vblank());
-#if KOF_LIVE_FIX_VDP2
-            check(!lf_serial&&!lf_count&&!lf_pal_dirty&&!kof_sequence_fix_errors);
+            kof_sequence_live_end_frame_ticks+=ticks()-t0;
+#if KOF_LIVE_FRAME_CACHE
+            live_cache_finish(cache_slot,f,start_hash,start_sum,live_state_hash,
+                live_state_sum,(uint32_t)stats.submitted*8u,fix_vdp2);
 #endif
+            {
+                uint32_t wt=ticks()-frame_start;
+                kof_sequence_live_frame_ticks+=wt;
+#if KOF_LIVE_FRAME_PROFILE
+                if(wt>kof_sequence_live_dbg_frame_work[i])kof_sequence_live_dbg_frame_work[i]=wt;
+                if(wt>3510u)++kof_sequence_live_dbg_over_budget;
+                if(wt>kof_sequence_live_dbg_max_work){kof_sequence_live_dbg_max_work=wt;kof_sequence_live_dbg_max_work_idx=i;}
+#endif
+            }
             kof_sequence_index=i;kof_sequence_commands=count;++kof_sequence_frames;
         }
     }

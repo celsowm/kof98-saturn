@@ -83,7 +83,7 @@ int main(void) {
             results=[]
             for folder in (src,dst):
                 exe=folder/'test'; subprocess.run([cc,'-std=c11','-O2','-I',str(base),'-I',str(folder),str(harness),str(folder/'recomp_00.c'),str(folder/'recomp_01.c'),str(folder/'recomp_table.c'),'-o',str(exe)],check=True)
-                results.append(subprocess.check_output([str(exe)]))
+                results.append(subprocess.check_output([str(exe)]).replace(b'\r\n',b'\n'))
             self.assertEqual(results[0],results[1])
             self.assertEqual(results[1],b'300000 20 20\n300000 14 16\n300000 14 16\n')
 

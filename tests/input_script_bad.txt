@@ -1,0 +1,2 @@
+# ROM-free negative fixture: an unknown button must be rejected, not ignored.
+50 jump
