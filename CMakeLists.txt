@@ -295,6 +295,31 @@ if(KOF_BUILD_NG_BOOT)
     COMMAND "${CMAKE_COMMAND}" -E copy "${KOF_MUSIC_DIR}/MUSIC.BIN" "${music_stage}"
     DEPENDS "${KOF_MUSIC_DIR}/MUSIC.BIN" VERBATIM)
   libsaturn_add_disc(kof_ng_boot ROOT_FILES "${bios_stage}" "${p1_stage}" "${p2_stage}" "${l0_stage}" "${tile_stage}" "${music_stage}")
+
+  # Interactive playable target: the full-app interpreter path (the only one
+  # that reaches real gameplay sprites) with pad input polled every guest frame
+  # and strips drawn every frame, vblank-paced. Same disc assets as kof_ng_boot.
+  option(KOF_BUILD_PLAYABLE "Build interactive pad-driven KOF98 target" OFF)
+  if(KOF_BUILD_PLAYABLE)
+    add_executable(kof_playable
+      src/saturn/ng_boot_main.c
+      src/ng/ng_boot.c src/ng/ng_boot_stats.c
+      src/ng/ng_live_strips.c
+      src/ng/ng_setjmp_shim.c
+      "${mus}/m68kcpu.c"
+      "${m68kgen}/m68kops.c")
+    target_include_directories(kof_playable PRIVATE
+      src/ng src/ng/shim src/saturn "${mus}" "${m68kgen}"
+      "${KOF_TILE_DIR}" "${KOF_MUSIC_DIR}")
+    target_compile_definitions(kof_playable PRIVATE
+      KOF_PLAYABLE=1 MUSASHI_CNF="ng_musashi_conf_boot.h" KOF_NG_SATURN=1)
+    target_compile_options(kof_playable PRIVATE -w)
+    libsaturn_configure_executable(kof_playable)
+    libsaturn_add_binary(kof_playable MAX_BYTES 983040)
+    target_link_libraries(kof_playable PRIVATE kof_saturn_assets)
+    libsaturn_add_disc(kof_playable ROOT_FILES
+      "${bios_stage}" "${p1_stage}" "${p2_stage}" "${l0_stage}" "${tile_stage}" "${music_stage}")
+  endif()
 endif()
 
 option(KOF_BUILD_NG_RECOMP_HOST "Build the host native-recomp (X2) equivalence/speed harness" OFF)

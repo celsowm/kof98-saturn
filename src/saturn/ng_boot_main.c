@@ -25,6 +25,9 @@
 #include <saturn/disc_stream.h>
 #include <saturn/ram_cart.h>
 #include <saturn/dma.h>
+#ifdef KOF_PLAYABLE
+#include <saturn/input.h>
+#endif
 
 #include "ng_boot.h"
 #include "kof98/ng_live_strips.h"
@@ -106,6 +109,29 @@ volatile uint32_t kof_music_extent_size;
 
 static void swap16(uint8_t* p, uint32_t n);
 static void fail(int line);
+
+#ifdef KOF_PLAYABLE
+/* Saturn pad -> Neo Geo active-high pad byte (ng_boot.h bit order: 0 up,
+ * 1 down, 2 left, 3 right, 4 A, 5 B, 6 C, 7 D). Z is coin. Polled once per
+ * guest frame so a real controller (or an emulator's pad) drives the game. */
+static void playable_poll_pad(void) {
+    sat_pad_state_t st;
+    if (sat_pad_poll(&st) != SAT_OK) return;
+    uint16_t h = st.held;
+    uint8_t p = 0;
+    if (h & SAT_PAD_UP)    p |= 1u << 0;
+    if (h & SAT_PAD_DOWN)  p |= 1u << 1;
+    if (h & SAT_PAD_LEFT)  p |= 1u << 2;
+    if (h & SAT_PAD_RIGHT) p |= 1u << 3;
+    if (h & SAT_PAD_A)     p |= 1u << 4;
+    if (h & SAT_PAD_B)     p |= 1u << 5;
+    if (h & SAT_PAD_C)     p |= 1u << 6;
+    if (h & SAT_PAD_START) p |= 1u << 7;
+    ng_boot_set_p1(p);
+    ng_boot_set_start((h & SAT_PAD_START) ? 1 : 0);
+    ng_boot_set_coin1((h & SAT_PAD_Z) ? 1 : 0);
+}
+#endif
 
 /* Copy the music feed state into the probe counters. Used by the slice hook
  * (services inside the guest frame) and by the main-loop tail. */
@@ -330,6 +356,12 @@ int main(void) {
 
     int rendered = 0;
     for (;;) {
+#ifdef KOF_PLAYABLE
+        /* Interactive build: drive the guest from the real pad every frame.
+         * Graphics are still the validated single-frame render at RENDER_FRAME
+         * because TILES.BIN is a one-frame tile pack — see docs. */
+        playable_poll_pad();
+#endif
         /* Real-time services run from the slice hook (ng_music_slice), not
          * here: one iteration is a whole guest frame, and the SCSP streams
          * must be serviced at field cadence inside it. */

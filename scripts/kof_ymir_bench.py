@@ -70,6 +70,9 @@ TARGETS = {
         "kof_music_frames", "kof_music_services", "kof_music_playing",
         "kof_music_underruns", "kof_music_refills", "kof_music_buffered",
         "kof_music_min_buffered", "kof_music_bytes")),
+    "playable": ("kof_playable", COMMON_SYMBOLS + (
+        "kof_live_sprite_count", "kof_live_sprite_hash", "kof_live_draw_strips",
+        "kof_live_draw_error", "kof_music_underruns")),
     "rawcode": ("kof_ng_rawcode_bench", COMMON_SYMBOLS + RECOMP_SYMBOLS + (
         "ng_boot_game_loads", "ng_boot_game_faults", "ng_boot_game_evictions",
         "ng_boot_game_errors", "ng_boot_game_resident",

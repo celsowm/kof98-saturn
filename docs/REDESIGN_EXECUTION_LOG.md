@@ -283,3 +283,21 @@ Full A/B matrix (all Ymir, `bad=0`):
 
 The pre-rendered/hybrid variant provides real game audio (36.6 MB streamed,
 `kof_music_playing=1`) but does not meet P5's speed gate.
+
+## Playable disc for manual emulator use
+
+Added `KOF_BUILD_PLAYABLE` / `kof_playable`: the full-app interpreter path
+(the only one that reaches gameplay sprites) with `KOF_PLAYABLE` polling the
+Saturn pad every guest frame (Z=coin, START=start, D-pad+A/B/C). It renders at
+the single frame the tile pack was built from (778) and keeps the vblank-paced
+loop. Disc: `build-ng/disc/kof_playable.cue` (8,851,280-byte ISO, 4,190
+sectors). It boots in Mednafen (window "kof playable", 4 MiB cart, JP BIOS)
+and in the Ymir probe.
+
+Caveats measured, not guessed: the interpreter path runs at ~0.0227×
+(`local/ymir/playable-check`, 68 guest frames / 3,000 fields), so it is far
+from real-time play; and `TILES.BIN` is a one-frame residency pack, so
+rendering other frames fails with `SAT_ERR_NOT_FOUND` (135 sprites detected
+but 0 strips drawn when forced continuous in the earlier attempt). A genuinely
+playable real-time build needs the P5 speed work and a full dynamic tile
+cache — it is not claimed here.
