@@ -292,7 +292,10 @@ Saturn pad every guest frame (Z=coin, START=start, D-pad+A/B/C). It renders at
 the single frame the tile pack was built from (778) and keeps the vblank-paced
 loop. Disc: `build-ng/disc/kof_playable.cue` (8,851,280-byte ISO, 4,190
 sectors). It boots in Mednafen (window "kof playable", 4 MiB cart, JP BIOS)
-and in the Ymir probe.
+and in the Ymir probe. A 36k-field Ymir run with the authored tape confirms
+the render path end-to-end: `local/ymir/playable-verify/verify.json` =
+`ng_boot_frames=778`, `kof_live_sprite_count=140`,
+`kof_live_draw_strips=140`, `draw_error=0`, `music_underruns=0`.
 
 Caveats measured, not guessed: the interpreter path runs at ~0.0227×
 (`local/ymir/playable-check`, 68 guest frames / 3,000 fields), so it is far
