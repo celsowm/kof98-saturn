@@ -312,7 +312,8 @@ if(KOF_BUILD_NG_BOOT)
       src/ng src/ng/shim src/saturn "${mus}" "${m68kgen}"
       "${KOF_TILE_DIR}" "${KOF_MUSIC_DIR}")
     target_compile_definitions(kof_playable PRIVATE
-      KOF_PLAYABLE=1 MUSASHI_CNF="ng_musashi_conf_boot.h" KOF_NG_SATURN=1)
+      KOF_PLAYABLE=1 MUSASHI_CNF="ng_musashi_conf_boot.h" KOF_NG_SATURN=1
+      RENDER_FRAME=13)
     target_compile_options(kof_playable PRIVATE -w)
     libsaturn_configure_executable(kof_playable)
     libsaturn_add_binary(kof_playable MAX_BYTES 983040)

@@ -304,3 +304,36 @@ rendering other frames fails with `SAT_ERR_NOT_FOUND` (135 sprites detected
 but 0 strips drawn when forced continuous in the earlier attempt). A genuinely
 playable real-time build needs the P5 speed work and a full dynamic tile
 cache — it is not claimed here.
+
+### Making the graphical disc watchable (2026-11-19)
+
+The reported symptom was "music/voices audible, screen all black". Root causes
+found and fixed, all measured in Ymir:
+
+1. **The render was gated to guest frame 778**, which at 0.023× is ~9 minutes
+   of emulated time. `ng_boot_host` scans showed the first sprites at guest
+   frame 13 (102 strips), and only **two distinct 59-tile sets** across frames
+   13–778 (frames 13–600 and 700–778). `tools/make_union_tile_pack.py` unions
+   them into one 118-tile, 15,584-byte `TILES.BIN` (reproduced byte-for-byte:
+   CRCs `D3ED1894`/`57F4A920`). `RENDER_FRAME` is now overridable and set to 13
+   for `kof_playable`.
+2. **The one-shot render froze the guest at RENDER_FRAME**, so pad input did
+   nothing afterwards. The post-render loop now keeps calling
+   `ng_boot_run_frames(1)` without opening a VDP1 frame, so the last submitted
+   list stays on screen while input stays live. Milestone re-renders at
+   frames 13/70/147/300/600/778 advance the picture through boot/attract and
+   end on the KOF98 title.
+3. **Black screen during boot**: LibSaturn's native `sat_loading_screen_draw_bar`
+   now shows progress from frame 0 to 13.
+
+Verified (`local/ymir/playable-*`): loading bar visible at field 1,200;
+"NEO GEO" BIOS splash visible at field 4,000; KOF98 title visible at field
+35,999 with the union pack; 36k-field harness `guest=2884`, `sprites=140`,
+`strips=140`, `draw_error=0`, `music_underruns=0`, and speed improved to
+0.0801× (the post-render loop no longer pays frame-setup cost). This is still
+not real-time play, and the picture updates only at the six milestones.
+
+Separately, `unified_main.c` no longer calls `ng_live_sprite_strips()` every
+frame after a successful render; a 30k-field pad-input run improved 0.0523× →
+0.0748× with `bad=0`. The native path still produces 0 gameplay sprites (the
+documented runtime-WRAM limitation), so this does not make it playable.

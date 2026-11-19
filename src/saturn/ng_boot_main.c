@@ -27,6 +27,7 @@
 #include <saturn/dma.h>
 #ifdef KOF_PLAYABLE
 #include <saturn/input.h>
+#include <saturn/loader.h>
 #endif
 
 #include "ng_boot.h"
@@ -43,7 +44,9 @@
 #define P1_BYTES   0x100000u
 #define P2_BYTES   0x300000u
 #define CART_BYTES 0x400000u
-#define RENDER_FRAME 778u            /* the frame the tile pack was built from */
+#ifndef RENDER_FRAME
+#define RENDER_FRAME 778u            /* default: frame the baseline tile pack was built from */
+#endif
 
 static sat_cd_block_t g_block;
 static sat_cd_device_t g_device;
@@ -354,14 +357,72 @@ int main(void) {
      * rings must be refilled at field cadence (see ng_music_slice). */
     ng_boot_set_slice_hook(ng_music_slice, 4000u);
 
+#ifdef KOF_PLAYABLE
+    /* Interactive build: poll the pad every guest frame. A LibSaturn loading
+     * bar shows boot progress until RENDER_FRAME, then the validated one-shot
+     * strip render is submitted and LEFT on screen (the proven display path —
+     * continuous VDP1 resubmission does not show on this target). RENDER_FRAME
+     * is the first frame with sprites (13), so the picture appears in ~12 s of
+     * emulated time instead of the ~9 min of the old frame-778 gate. */
+    sat_loading_screen_t load_screen;
+    sat_loading_screen_default(&load_screen);
+    /* Re-render at a few guest-frame milestones so the picture advances
+     * through the boot/attract sequence instead of freezing on one frame.
+     * Between milestones the last VDP1 list is left displayed while the guest
+     * keeps running (pad input stays live). */
+    static const uint32_t k_milestones[] = { 13u, 70u, 147u, 300u, 600u, 778u };
+    uint32_t milestone = 0;
     int rendered = 0;
     for (;;) {
-#ifdef KOF_PLAYABLE
-        /* Interactive build: drive the guest from the real pad every frame.
-         * Graphics are still the validated single-frame render at RENDER_FRAME
-         * because TILES.BIN is a one-frame tile pack — see docs. */
         playable_poll_pad();
-#endif
+        if (rendered) {
+            /* Keep the guest advancing so pad input still drives the game.
+             * Do NOT open a VDP1 frame: the last submitted list remains on
+             * screen, and running the guest does not touch Saturn VDP1. */
+            if (milestone < sizeof(k_milestones)/sizeof(k_milestones[0]) &&
+                ng_boot_frames >= k_milestones[milestone]) {
+                milestone++;
+                rendered = 0;   /* submit a fresh frame at this milestone */
+            }
+            ng_boot_run_frames(1);
+            if (sat_wait_vblank() != SAT_OK) fail(__LINE__);
+        } else {
+            if (sat_begin_frame() != SAT_OK) fail(__LINE__);
+            ng_boot_run_frames(1);
+
+            if (ng_boot_frames < RENDER_FRAME) {
+                uint16_t pct = (uint16_t)(((uint64_t)ng_boot_frames * 100u) / RENDER_FRAME);
+                sat_loading_screen_draw_bar(&load_screen, pct);
+            } else {
+                uint32_t h = 0;
+                uint32_t n = ng_live_sprite_strips(ng_boot_vram(), g_zoom, ng_boot_pal(),
+                                                  ng_boot_anim(), ng_boot_fix_bios(), &h);
+                kof_live_sprite_count = n;
+                kof_live_sprite_hash = (n == 0xFFFFFFFFu) ? 0u : h;
+                kof_live_ng_cycles = ng_boot_cycles_lo();
+                if (n != 0xFFFFFFFFu) {
+                    kof_emit_stats stats;
+                    sat_result_t dr = kof_saturn_strip_draw(&g_renderer, ng_live_builder(), &g_view, &stats);
+                    kof_live_draw_error = (uint32_t)dr;
+                    if (dr == SAT_OK) {
+                        kof_live_draw_strips = ng_live_builder()->count;
+                        kof_live_draw_native = stats.native;
+                        kof_live_draw_variants = stats.variants;
+                        kof_live_tile_uploads = g_tiles.cache.tile_misses + g_tiles.cache.lut_misses;
+                    }
+                    (void)kof_tile_cache_end(&g_tiles.cache);
+                    if (dr == SAT_OK) rendered = 1;
+                }
+            }
+            if (sat_end_frame() != SAT_OK) fail(__LINE__);
+            if (sat_wait_vblank() != SAT_OK) fail(__LINE__);
+        }
+        music_stats_refresh();
+        ++kof_music_frames;
+    }
+#else
+    int rendered = 0;
+    for (;;) {
         /* Real-time services run from the slice hook (ng_music_slice), not
          * here: one iteration is a whole guest frame, and the SCSP streams
          * must be serviced at field cadence inside it. */
@@ -410,4 +471,5 @@ int main(void) {
         music_stats_refresh();
         ++kof_music_frames;
     }
+#endif
 }

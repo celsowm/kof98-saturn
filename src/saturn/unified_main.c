@@ -254,7 +254,10 @@ int main(void) {
 #endif
 
         uint32_t n = 0, h = 0;
-        if (ng_boot_frames + 2u >= RENDER_FRAME) {
+        /* Strip decoding walks all 224 LSPC lines (~32% of the SH-2 profile).
+         * The result is only consumed by the single RENDER_FRAME draw, so once
+         * that draw has succeeded stop decoding every subsequent frame. */
+        if (!rendered && ng_boot_frames + 2u >= RENDER_FRAME) {
             n = ng_live_sprite_strips(ng_boot_vram(), g_zoom, ng_boot_pal(),
                                       ng_boot_anim(), ng_boot_fix_bios(), &h);
             kof_live_sprite_count = n;

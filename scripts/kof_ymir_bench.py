@@ -64,6 +64,11 @@ TARGETS = {
         "kof_live_sprite_count", "kof_live_sprite_hash", "kof_live_draw_strips",
         "kof_live_draw_native", "kof_live_draw_variants", "kof_live_draw_error",
         "kof_ym_samples", "kof_ym_written", "kof_ym_step")),
+    "unified_pad": ("kof_unified", COMMON_SYMBOLS + RECOMP_SYMBOLS + (
+        "kof_live_sprite_count", "kof_live_sprite_hash", "kof_live_draw_strips",
+        "kof_live_draw_native", "kof_live_draw_variants", "kof_live_draw_error",
+        "kof_ym_samples", "kof_ym_written", "kof_ym_step",
+        "kof_pad_calls", "kof_pad_nonzero")),
     "unified_music": ("kof_unified_music", COMMON_SYMBOLS + RECOMP_SYMBOLS + (
         "kof_live_sprite_count", "kof_live_sprite_hash", "kof_live_draw_strips",
         "kof_live_draw_native", "kof_live_draw_variants", "kof_live_draw_error",
