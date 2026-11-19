@@ -24,6 +24,7 @@ SETS = [
     ("wram92.c.txt", "wram92_clean.c", "wram"),
     ("hot94b.c.txt", "hot94_clean.c", "kof"),
     ("all_exec.c.txt", "all_exec_clean.c", "kof"),
+    ("all_profile.c.txt", "all_profile_clean.c", "kof"),
 ]
 
 

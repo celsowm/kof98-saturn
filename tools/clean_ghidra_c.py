@@ -30,6 +30,7 @@ TYPE_MAP = {
     "ulonglong": "uint64_t",
     "longlong": "int64_t",
     "undefined6": "uint64_t",
+    "int6": "int64_t",
 }
 
 
@@ -58,6 +59,11 @@ def clean(text: str, prefix: str) -> str:
                   lambda m: f"{prefix}_case_{m.group(1)}_{m.group(2)}", text)
     text = re.sub(r"\bswitchD_([0-9a-fA-F]+)_caseD_(\w+)",
                   lambda m: f"{prefix}_case_{m.group(1)}_{m.group(2)}", text)
+    # Ghidra switch data tables -> address-named global.
+    text = re.sub(r"\bswitchD_[0-9a-fA-F]+::switchdataD_([0-9a-fA-F]+)",
+                  lambda m: f"{prefix}_mem_{m.group(1)}", text)
+    text = re.sub(r"\bswitchD_([0-9a-fA-F]+)\b",
+                  lambda m: f"{prefix}_mem_{m.group(1)}", text)
     # Switch-table pointer globals -> address-named globals.
     text = re.sub(r"\bPTR_caseD_[a-z]_([0-9a-fA-F]+)\b",
                   lambda m: f"{prefix}_mem_{m.group(1)}", text)
@@ -128,6 +134,19 @@ def clean(text: str, prefix: str) -> str:
     called_args = set(re.findall(rf"\b{prefix}_fn_([0-9a-fA-F]+)\s*\([^)]*\w[^)]*\)", text))
     for h in called_args:
         text = re.sub(rf"\bvoid(\s+{prefix}_fn_{h}\s*)\(void\)", r"void\1()", text)
+    # Ghidra can emit the same switch-case helper more than once; keep one.
+    text = dedupe_definitions(text, prefix)
+    # Function addresses stored inline in expressions (e.g. comma operators)
+    # need an explicit narrowing cast.
+    text = re.sub(rf"(=\s*)({prefix}_(?:fn|case|thunk)_[0-9a-fA-F]+)(?=\s*[,)])",
+                  r"\1(uint32_t)(uintptr_t)\2", text)
+    # A global used as an array base needs an explicit byte-pointer cast.
+    text = re.sub(rf"\b({prefix}_mem_[0-9a-fA-F]+)(?=\s*\[)",
+                  r"((uint8_t *)&\1)", text)
+    # Generic union accessors on stack/local scalars.
+    text = re.sub(r"\b([A-Za-z_][A-Za-z0-9_]*)\._([0-9a-fA-F]+)_([0-9a-fA-F]+)_\b",
+                  lambda m: f"(*(uint{8 * int(m.group(3), 16)}_t *)((uintptr_t)&{m.group(1)} + {int(m.group(2), 16)}))",
+                  text)
     # Ghidra's `(void)` prototypes reject calls that lost arguments in the
     # register ABI; unprototyped `()` keeps those calls valid C11.
     text = text.replace("(void)", "()")
@@ -155,6 +174,22 @@ def clean(text: str, prefix: str) -> str:
     return text
 
 
+def dedupe_definitions(text: str, prefix: str) -> str:
+    """Drop repeat definitions of the same address-named function."""
+    pat = rf"^(?:\w+[ \t]+)+{prefix}_(?:fn|thunk|case)_[0-9a-fA-F]+(?:_\w+)?\s*\([^)]*\)\s*$"
+    blocks = re.split(rf"(?={pat})", text, flags=re.M)
+    seen = set()
+    out = []
+    for b in blocks:
+        m = re.match(rf"^(?:\w+[ \t]+)+({prefix}_(?:fn|thunk|case)_[0-9a-fA-F]+(?:_\w+)?)\s*\(", b)
+        if m:
+            if m.group(1) in seen:
+                continue
+            seen.add(m.group(1))
+        out.append(b)
+    return "".join(out)
+
+
 def fix_void_value_calls(text: str, prefix: str) -> str:
     """Promote void functions that are used in value contexts to uint32_t."""
     kinds = ("fn", "thunk")
@@ -163,6 +198,8 @@ def fix_void_value_calls(text: str, prefix: str) -> str:
         used |= set(re.findall(rf"\b{prefix}_{k}_([0-9a-fA-F]+)\s*\([^)]*\)\s*[<+\-*/&|)]",
                                text)) | set(re.findall(
             rf"[=(]\s*{prefix}_{k}_([0-9a-fA-F]+)\s*\([^)]*\)", text))
+        used |= set(re.findall(
+            rf"=\s*\([^)]*\)\s*{prefix}_{k}_([0-9a-fA-F]+)\s*\(", text))
     void_defs = set()
     for k in kinds:
         void_defs |= set(re.findall(rf"^void\s+{prefix}_{k}_([0-9a-fA-F]+)\s*\(",
@@ -215,7 +252,7 @@ def add_type_casts(text: str, prefix: str) -> str:
                     cast_ty = cast_ty[:-1].rstrip()
                 line = line.replace(pre + rhs, pre + f"({cast_ty}){rhs}", 1)
         # Cast pointer stores into integer globals held in dereferenced locals.
-        if re.match(r"^\s*\*\w+\s*=\s*(?:&|in_|\w+_fn_)", line):
+        if re.match(r"^\s*\*\w+\s*=\s*(?:&|in_|\w+_(?:fn|thunk|case)_)", line):
             line = re.sub(r"^(\s*)(\*\w+\s*=\s*)", r"\1\2(uint32_t)(uintptr_t)", line)
         if re.match(r"^\w+\s+\w+_fn_[0-9a-fA-F]+\s*\(", line):
             types.clear()  # locals are function-scoped
@@ -243,9 +280,8 @@ def add_type_casts(text: str, prefix: str) -> str:
             continue
         pointer = "*" in ltype
         need_cast = False
-        if (re.fullmatch(r"&[A-Za-z_]\w*", rhs)
-                or re.fullmatch(r"\w*_(?:fn|case|lbl|ptr_mem|ptr_lbl)_[0-9a-fA-F]+(?:_\w+)?", rhs)
-                or re.fullmatch(r"\w+_fn_[0-9a-fA-F]+", rhs)):
+        if ("_fn_" in rhs or re.fullmatch(r"&[A-Za-z_]\w*", rhs)
+                or re.fullmatch(r"\w*_(?:case|lbl|ptr_mem|ptr_lbl)_[0-9a-fA-F]+(?:_\w+)?", rhs)):
             need_cast = True
         elif (re.fullmatch(r"\w*_mem_[0-9a-fA-F]+(?:_[bw])?(?:\[[^\]]*\])?(?:\s*[+\-]\s*\w+)?", rhs)
               or re.fullmatch(r"PTR_(?:FUN|PTR)_[0-9a-fA-F]+", rhs)
@@ -253,7 +289,7 @@ def add_type_casts(text: str, prefix: str) -> str:
             need_cast = pointer
         elif re.fullmatch(r"\([A-Za-z_]\w*\s*\*\)\s*\w+", rhs):
             need_cast = not pointer
-        elif rhs.startswith("&") and pointer and re.fullmatch(r"&\w+_mem_[0-9a-fA-F]+(?:\s*[+]\s*.*)?", rhs):
+        elif rhs.startswith("&") and re.fullmatch(r"&\w+_mem_[0-9a-fA-F]+(?:\s*[+]\s*.*)?", rhs):
             need_cast = True
         elif re.fullmatch(r"\*[A-Za-z_]\w*|[A-Za-z_]\w*\[[^\]]*\]", rhs) and not pointer:
             need_cast = True
