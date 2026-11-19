@@ -19,11 +19,16 @@ def main() -> int:
     ap.add_argument("--p1", type=Path, required=True)
     ap.add_argument("--p2", type=Path, required=True)
     ap.add_argument("--bios", type=Path, required=True)
+    ap.add_argument("--wram", type=Path, default=None,
+                    help="optional live WRAM dump mapped at $100000 (runtime code)")
     ap.add_argument("--out", type=Path, required=True)
     a = ap.parse_args()
 
     img = bytearray(b"\xff" * SIZE)
     img[0:0x100000] = a.p1.read_bytes()[:0x100000]
+    if a.wram:
+        w = a.wram.read_bytes()
+        img[0x100000:0x100000 + len(w)] = w
     img[0x200000:0x600000] = a.p2.read_bytes()[:0x400000]
     bios = bytearray(a.bios.read_bytes()[:0x20000])
     bios[0::2], bios[1::2] = bios[1::2], bios[0::2]

@@ -39,9 +39,29 @@ All ROM-derived inputs and outputs live under ignored `local/`.
   The existing machine-generated recomp C remains the more complete translation
   of the code.
 
+## Machine-cleaned C (first deliverable)
+
+`tools/clean_ghidra_c.py` turns the pseudocode into ordinary, typed C:
+standard `stdint.h` types, address-bearing names (`wram_fn_100000`,
+`wram_mem_0010fce8`), section markers as comments, deduplicated bodies,
+Ghidra `CONCATxx`/`DAT_`/`FUN_`/`code` idioms normalised, and a companion
+header declaring every global/function. Both outputs pass a host GCC
+`-fsyntax-only` check:
+
+| source | output | defined functions | bytes |
+|---|---|---|---|
+| 92 WRAM dispatch entries (WRAM mapped into the flat image) | `local/decomp/wram92_clean.c` | 65 | 74,581 |
+| 94-routine boot set | `local/decomp/hot94_clean.c` | 73 | 25,516 |
+
+Mapping the live WRAM dump at `$100000` made **92/92** WRAM routines decompile
+with zero failures; the Ghidra output is readable loop/branch C (e.g.
+`$100000` initialises a structure then loops calling `$1008a6` and `$10079e`).
+This is the concrete "pure C" starting point: compilable translation units with
+stable names, ready for semantic naming and typing by hand or agent.
+
 ## Conclusion so far
 
-The decomp-first pipeline works and is reproducible, but Ghidra pseudocode from
-this memory layout is only partial. Making it "pure C" at game scale would need
-mapped RAM/IO regions and extensive manual typing/naming of 56k+ addresses — a
-separate long-running project. No Saturn changes were made in this track.
+The pipeline works and is reproducible. Remaining work is semantic: renaming
+`*_mem_*` globals to real game variables and typing the 56k+ dispatch addresses
+for the full game — a separate long-running project. No Saturn changes were
+made in this track.
