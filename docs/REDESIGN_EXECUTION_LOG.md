@@ -337,3 +337,32 @@ Separately, `unified_main.c` no longer calls `ng_live_sprite_strips()` every
 frame after a successful render; a 30k-field pad-input run improved 0.0523× →
 0.0748× with `bad=0`. The native path still produces 0 gameplay sprites (the
 documented runtime-WRAM limitation), so this does not make it playable.
+
+## X2 follow-up — offline recompile of the guest-WRAM code (2026-11-19)
+
+Built an end-to-end flow for the runtime-generated 68000 code instead of a JIT:
+`ng_boot_host_prof` + `KOF_PROF_WORDS` profile executed word addresses; the host
+guard PC profiler covers `$100000-$1FFFFF`. Over 3,000 guest frames there are
+only **476 distinct executed WRAM instruction words**, all in one 4 KB page,
+spanning `$100000-$10094A`. Ymir `--dump-mem` captured the live 64 KB `s_wram`
+at `$0028c400`; `m68krecomp --raw ... --base 0x100000 --entry 0x100000`
+recompiled it into **42 native routines / 92 dispatch entries**, covering all
+476 executed PCs (the observed `$100078`, `$1000d4`, `$1008b0` are internal
+labels inside owning routines). `tools/make_wram_native.py` merges those
+entries into the binary-search resident map (258 total). New opt-in targets
+`kof_resident_wram` (206,520 B) and `kof_unified_wram` (283,748 B) build with
+`bad=0` over 30k fields (`local/ymir/wram-sprite-30k`).
+
+**Decisive negative result:** the native guest still produces **0 sprites**
+(`kof_scan_hits=0` over 126 samples) and only **15 WRAM dispatch hits**. A
+Ymir `--dump-mem` of `s_wram` at 2,135 guest frames shows the native WRAM code
+region is **entirely zero** (0 nonzero bytes in `$100000-$100FFF`), while the
+interpreter's dump has 3,325 nonzero bytes by ~frame 25. The first writer in
+the interpreter is BIOS PC `C11056` (`movem.l D0-D3,-(A0)`); the corresponding
+native routine `r_C11002` *is* in the resident map and contains `L_C11056`.
+So the blocker is not the missing WRAM recompilation: **the static-recompiled
+guest never executes the BIOS block that copies the routine into WRAM**, i.e.
+its execution path diverges earlier during boot. Fixing that needs a separate
+bit-exactness investigation of the native BIOS/game path (compare dispatch PC
+traces between native and interpreter from the first guest frame). The WRAM
+native infrastructure is kept as opt-in, off by default.

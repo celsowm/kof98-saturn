@@ -60,6 +60,11 @@ TARGETS = {
     "recomp": ("kof_ng_bench_recomp", COMMON_SYMBOLS + RECOMP_SYMBOLS),
     "resident": ("kof_resident_bench", COMMON_SYMBOLS + RECOMP_SYMBOLS),
     "pruned": ("kof_resident_pruned", COMMON_SYMBOLS + RECOMP_SYMBOLS),
+    "resident_wram": ("kof_resident_wram", COMMON_SYMBOLS + RECOMP_SYMBOLS),
+    "unified_wram": ("kof_unified_wram", COMMON_SYMBOLS + RECOMP_SYMBOLS + (
+        "kof_live_sprite_count", "kof_live_draw_strips", "kof_live_draw_error",
+        "kof_scan_samples", "kof_scan_hits", "kof_scan_first_frame",
+        "kof_scan_max_count", "kof_scan_max_frame", "kof_wram_dispatch_hits")),
     "unified": ("kof_unified", COMMON_SYMBOLS + RECOMP_SYMBOLS + (
         "kof_live_sprite_count", "kof_live_sprite_hash", "kof_live_draw_strips",
         "kof_live_draw_native", "kof_live_draw_variants", "kof_live_draw_error",

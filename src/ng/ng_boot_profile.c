@@ -22,6 +22,7 @@ static uint32_t s_prof_page_hits[NG_PROF_PAGES];
 static uint32_t s_prof_page_words[NG_PROF_PAGES];
 static uint32_t s_prof_line_hits[NG_PROF_LINES];
 static uint64_t s_prof_calls;
+volatile uint32_t ng_profile_wram_writer_pc;
 
 void ng_profile_record(uint32_t pc) {
     uint32_t bit, page;

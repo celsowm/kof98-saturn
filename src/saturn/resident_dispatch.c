@@ -27,12 +27,16 @@ extern const unsigned g_resident_map_count;
 #define CACHE_MASK (CACHE_SIZE - 1u)
 static struct resident_entry s_cache[CACHE_SIZE];
 
+/* Diagnostic: dispatch hits in the guest-WRAM window ($100000-$1FFFFF). */
+volatile uint32_t kof_wram_dispatch_hits;
+
 ng_func_t ng_resident_lookup(uint32_t pc) {
     /* 32-bit multiplicative hash, masked after every op (no 64-bit morph). */
     /* s_cache is zero-initialised, so addr==0 is the "empty" sentinel: never
      * trust a tag match for pc==0 (it could spuriously hit fn=NULL). PC 0 is
      * the vector page and is not a native routine, so bypass the cache for it. */
     if (pc == 0u) return NULL;
+    if (pc >= 0x100000u && pc < 0x200000u) kof_wram_dispatch_hits++;
     uint32_t idx = (pc * 2654435761u) >> (32u - CACHE_BITS);
     idx &= CACHE_MASK;
     if (s_cache[idx].addr == pc) return s_cache[idx].fn;   /* tag match (incl. miss tags) */

@@ -442,7 +442,13 @@ void ng_boot_write16(uint32_t a, uint16_t v) {
     a &= 0xFFFFFE;
     if (a >= 0x2FFFF0 && a < 0x300000) { s_p_bank = (uint8_t)(v & 7); return; }  /* bank switch */
     if (a < 0x100000) return;
-    if (a < 0x200000) { uint8_t* p = s_wram + (a & 0xFFFF); p[0] = (uint8_t)(v >> 8); p[1] = (uint8_t)v; return; }
+    if (a < 0x200000) {
+#ifdef NG_BOOT_PC_PROFILE
+        if (a >= 0x100000u && a < 0x100200u && ng_profile_wram_writer_pc == 0u)
+            ng_profile_wram_writer_pc = ng_boot_last_pc;
+#endif
+        uint8_t* p = s_wram + (a & 0xFFFF); p[0] = (uint8_t)(v >> 8); p[1] = (uint8_t)v; return;
+    }
     if (a < 0x300000) return;
     if (a < 0x800000) { dev_w16(a, v); return; }
     if (s_mvs && a >= 0xD00000 && a < 0xE00000 && !s_backup_locked) {

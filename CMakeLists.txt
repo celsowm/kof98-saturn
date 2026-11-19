@@ -854,6 +854,42 @@ if(KOF_BUILD_NG_BENCH)
       target_link_libraries(kof_resident_pruned PRIVATE kof_saturn_assets)
       libsaturn_add_disc(kof_resident_pruned ALL ROOT_FILES "${bios_stage}" "${p1_stage}" "${p2_stage}")
 
+      # Guest-WRAM native experiment (X2 follow-up): the same pruned RECOMP_ONLY
+      # core, plus offline-recompiled native routines for the small 68000
+      # routine the guest copies into $100000 at runtime. The static P-ROM
+      # recompiler cannot see those bytes; tools/make_wram_native.py merges the
+      # generated dispatch entries into the binary-search map. All inputs are
+      # local, ignored build artifacts (game-derived code is never committed).
+      option(KOF_BUILD_WRAM_NATIVE "Build resident core with guest-WRAM native routines" OFF)
+      if(KOF_BUILD_WRAM_NATIVE)
+        set(KOF_WRAMD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/local/wram_native" CACHE PATH "Local guest-WRAM native artifacts")
+        foreach(_wf wram_resident_map.c game_wramrecomp_00.c game_wramrecomp_common.h)
+          if(NOT EXISTS "${KOF_WRAMD_DIR}/${_wf}")
+            message(FATAL_ERROR "Missing ${KOF_WRAMD_DIR}/${_wf}; run the WRAM native generation flow first")
+          endif()
+        endforeach()
+        add_executable(kof_resident_wram
+          src/saturn/resident_bench_main.c src/ng/ng_boot.c src/ng/ng_boot_stats.c src/ng/ng_boot_recomp.c src/ng/libgcc_stubs.c
+          src/saturn/resident_dispatch.c src/ng/dense_routines.c src/ng/wram_rescue_routines.c
+          "${KOF_PRUNED_DIR}/pruned_native.c"
+          "${KOF_WRAMD_DIR}/game_wramrecomp_00.c"
+          "${KOF_WRAMD_DIR}/wram_resident_map.c"
+          "${KOF_PRUNED_DIR}/pruned_bios_table.c")
+        target_include_directories(kof_resident_wram BEFORE PRIVATE
+          "${KOF_WRAMD_DIR}" "${KOF_PRUNED_DIR}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/local/ymir/c32"
+          "${CMAKE_CURRENT_SOURCE_DIR}/local/ng_recomp_game256"
+          "${CMAKE_CURRENT_SOURCE_DIR}/build-ng/ng_bench_gen"
+          src/ng src/ng/shim src/saturn include "${mus}" "${m68kgen}" "${nginc}")
+        target_compile_definitions(kof_resident_wram PRIVATE
+          KOF_NG_SATURN=1 NG_BOOT_RECOMP=1 NG_BOOT_RECOMP_ONLY=1 KOF_32BIT_CYCLES=1)
+        target_compile_options(kof_resident_wram PRIVATE -w)
+        libsaturn_configure_executable(kof_resident_wram)
+        libsaturn_add_binary(kof_resident_wram MAX_BYTES 983040)
+        target_link_libraries(kof_resident_wram PRIVATE kof_saturn_assets)
+        libsaturn_add_disc(kof_resident_wram ALL ROOT_FILES "${bios_stage}" "${p1_stage}" "${p2_stage}")
+      endif()
+
       # Unified target (architecture redesign P3/P4/P5): the SAME pruned
       # RECOMP_ONLY native guest plus the validated gated renderer and the
       # live Z80/YM2610 audio path. unified_main.c is a flat-out bench main
@@ -925,6 +961,51 @@ if(KOF_BUILD_NG_BENCH)
         libsaturn_add_disc(kof_unified ALL ROOT_FILES
           "${bios_stage}" "${p1_stage}" "${p2_stage}" "${l0_stage}" "${tile_stage}"
           "${music_stage}" "${sm1_stage_u}" "${m1_stage_u}")
+
+        # Same unified target with the offline-recompiled guest-WRAM routines
+        # linked in. Diagnostic KOF_SPRITE_SCAN reports whether the native path
+        # now reaches gameplay sprites (git issue: it previously never did).
+        if(KOF_BUILD_WRAM_NATIVE)
+          add_executable(kof_unified_wram
+            src/saturn/unified_main.c src/ng/ng_boot.c src/ng/ng_boot_stats.c src/ng/ng_boot_recomp.c
+            src/ng/ng_live_strips.c src/ng/libgcc_stubs.c
+            src/saturn/resident_dispatch.c
+            src/ng/dense_routines.c src/ng/wram_rescue_routines.c
+            "${KOF_WRAMD_DIR}/game_wramrecomp_00.c"
+            "${KOF_WRAMD_DIR}/wram_resident_map.c"
+            "${KOF_PRUNED_DIR}/pruned_native.c"
+            "${KOF_PRUNED_DIR}/pruned_bios_table.c"
+            ${KOF_AUDIO_SOURCES_U})
+          set_source_files_properties(
+            src/audio_shims/shim_alloc.cpp "${ngsrc}/ym2610.cpp"
+            "${up}/neogeorecomp/ext/ymfm/src/ymfm_opn.cpp"
+            "${up}/neogeorecomp/ext/ymfm/src/ymfm_adpcm.cpp"
+            "${up}/neogeorecomp/ext/ymfm/src/ymfm_ssg.cpp"
+            "${up}/neogeorecomp/ext/ymfm/src/ymfm_misc.cpp"
+            PROPERTIES COMPILE_OPTIONS "-std=c++17;-fno-exceptions;-fno-rtti")
+          target_include_directories(kof_unified_wram BEFORE PRIVATE
+            src/audio_shims "${KOF_WRAMD_DIR}" "${KOF_PRUNED_DIR}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/local/ymir/c32"
+            "${CMAKE_CURRENT_SOURCE_DIR}/local/ng_recomp_game256"
+            "${CMAKE_CURRENT_SOURCE_DIR}/build-ng/ng_bench_gen")
+          target_include_directories(kof_unified_wram PRIVATE
+            src/ng src/ng/shim src/saturn include "${mus}" "${m68kgen}" "${nginc}"
+            "${ngsrc}" "${up}/neogeorecomp/ext/ymfm/src" "${up}/neogeorecomp/ext/z80"
+            "${bgen}" "${KOF_TILE_DIR}" "${KOF_MUSIC_DIR}")
+          target_compile_definitions(kof_unified_wram PRIVATE
+            KOF_NG_SATURN=1 NG_BOOT_RECOMP=1 NG_BOOT_RECOMP_ONLY=1 NG_BOOT_LIVE_AUDIO=1
+            LIVE_MAX_STRIPS=512 KOF_32BIT_CYCLES=1 KOF_SPRITE_SCAN=1
+            MUSASHI_CNF="ng_musashi_conf_boot.h")
+          target_compile_options(kof_unified_wram PRIVATE -w)
+          target_link_options(kof_unified_wram PRIVATE
+            -Wl,-u,___ashldi3 -Wl,-u,___ashrdi3 -Wl,-u,___lshrdi3)
+          libsaturn_configure_executable(kof_unified_wram)
+          libsaturn_add_binary(kof_unified_wram MAX_BYTES 983040)
+          target_link_libraries(kof_unified_wram PRIVATE kof_saturn_assets)
+          libsaturn_add_disc(kof_unified_wram ALL ROOT_FILES
+            "${bios_stage}" "${p1_stage}" "${p2_stage}" "${l0_stage}" "${tile_stage}"
+            "${music_stage}" "${sm1_stage_u}" "${m1_stage_u}")
+        endif()
 
         # P5 experiment: same pruned native guest + gated renderer, but game
         # audio is the pre-rendered MUSIC.BIN SCSP stream (PORTING_PLAN Phase F

@@ -88,6 +88,7 @@ void ng_boot_profile_reset(void);
 void ng_boot_profile_dump(const char* path);
 /* Optional compact list of executed word address ranges (text, one per line). */
 void ng_boot_profile_dump_words(const char* path);
+extern volatile uint32_t ng_profile_wram_writer_pc;
 #endif
 
 /* Run `frames` video frames (264 lines each) with vblank IRQ1 and the LSPC

@@ -312,5 +312,13 @@ int main(int argc, char** argv) {
             printf("live sprite tiles: %u -> %s\n", nt, argv[6]);
         }
     }
+#ifdef NG_BOOT_PC_PROFILE
+    /* Optional host-only dump of every executed word address (X2 WRAM work). */
+    {
+        const char* wp = getenv("KOF_PROF_WORDS");
+        if (wp) ng_boot_profile_dump_words(wp);
+        printf("wram_first_writer_pc=%06X\n", ng_profile_wram_writer_pc);
+    }
+#endif
     return 0;
 }
