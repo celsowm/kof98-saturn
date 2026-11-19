@@ -70,12 +70,18 @@ def clean(text: str, prefix: str) -> str:
     # Section separators -> comments; deduplicate repeated function bodies.
     text = re.sub(r"^==== ([0-9A-Fa-f]+) : (.*?) ====$",
                   lambda m: f"/* {m.group(1)} : {m.group(2)} */", text, flags=re.M)
+    # De-duplicate repeated function bodies (original keying). Thunks are the
+    # one case where this is wrong: every thunk in a group calls the same
+    # target, so keying on that call dropped distinct thunks. For a block that
+    # defines a thunk, use the thunk definition as the key instead.
+    call_key = re.compile(r"\b(?:kof|FUN)_[0-9a-fA-F]+\s*\(")
+    thunk_key = re.compile(rf"^\s*(?:\w+[ \t]+)+{re.escape(prefix)}_thunk_[0-9a-fA-F]+\s*\(", re.M)
     seen = set()
     kept = []
     for block in re.split(r"(?=/\* [0-9A-Fa-f]+ : )", text):
-        m = re.search(r"\b(?:kof|FUN)_[0-9a-fA-F]+\s*\(", block)
+        m = thunk_key.search(block) or call_key.search(block)
         if m:
-            key = m.group(0)
+            key = m.group(0).strip().lower()
             if key in seen:
                 continue
             seen.add(key)
@@ -169,6 +175,29 @@ def clean(text: str, prefix: str) -> str:
     # freely mixes pointer and integer types. Make each such assignment explicit
     # with a cast (no error suppression needed at compile time).
     text = add_type_casts(text, prefix)
+    # Ghidra names a thunk after its *target* (thunk_FUN_00c16cec), while call
+    # sites in the base translation name it by its own address (FUN_00c004c2).
+    # Bridge the two so those calls reach the translated body instead of a
+    # generated stub. The section address is the thunk's real guest address.
+    out = []
+    for block in re.split(r"(?=/\* [0-9A-Fa-f]+ : )", text):
+        sm = re.match(r"/\* ([0-9A-Fa-f]+) : (\w+) \*/", block)
+        if sm:
+            addr, named = sm.group(1).lower(), sm.group(2)
+            tm = re.fullmatch(rf"{re.escape(prefix)}_thunk_([0-9a-fA-F]+)", named)
+            if tm and not re.search(rf"\b{re.escape(prefix)}_fn_{addr}\s*\(", block):
+                dm = re.search(rf"^(\w+)\s+{re.escape(prefix)}_thunk_{tm.group(1)}\s*\(",
+                               block, re.M)
+                if dm:
+                    ret = dm.group(1)
+                    call = f"{prefix}_thunk_{tm.group(1)}()"
+                    body = f"return {call};" if ret != "void" else f"{call};"
+                    block = re.sub(rf"/\* {re.escape(sm.group(1))} : [^*]+ \*/",
+                                   f"/* {sm.group(1)} : {prefix}_fn_{addr} */",
+                                   block, count=1)
+                    block += f"\n\n/* address alias for {named} */\n{ret} {prefix}_fn_{addr}() {{ {body} }}\n"
+        out.append(block)
+    text = "".join(out)
     # Normalise blank lines.
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text

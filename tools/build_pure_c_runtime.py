@@ -74,6 +74,12 @@ def main() -> int:
         if r.returncode:
             print(r.stderr[-2000:], file=sys.stderr)
             return r.returncode
+    elif stubs.exists():
+        # A prior build may have generated stubs for routines that are now
+        # translated. Leaving them around would cause duplicate definitions
+        # (and silently re-mask the very calls we just implemented).
+        stubs.unlink()
+        print("removed stale stub file")
 
     r = run([str(exe), a.pc, "1"])
     print(r.stdout.strip())

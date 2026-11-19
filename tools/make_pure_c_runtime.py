@@ -61,9 +61,15 @@ def main() -> int:
             decl_ty = ty + (" " + star if star else "")
             is_ptr = bool(star)
             mm = re.match(r"(?:unaff|extraout|in)_D[0-7]", name)
-            deref = bool(re.search(r"\*\s*" + re.escape(name) + r"\b", clean_src))
-            if mm or not deref:
-                is_ptr = False
+            deref = bool(re.search(r"\*\s*" + re.escape(name) + r"\b", clean_src)
+                         or re.search(r"\b" + re.escape(name) + r"\s*\[", clean_src)
+                         or re.search(r"\b" + re.escape(name) + r"\s*->", clean_src))
+            # A register local is a host pointer into guest memory if any
+            # declaration types it as a pointer OR any use dereferences it
+            # (`*p`, `p[i]`, `p->f`). The same name is declared with different
+            # types in different routines, so a single global "is_ptr" must
+            # use the union of those signals.
+            is_ptr = False if mm else (bool(star) or deref)
             indent = line[:len(line) - len(line.lstrip())]
             # Keep the original per-function type, initialized from the
             # shared slot. A single global macro type is unsound: the same
@@ -159,9 +165,24 @@ def main() -> int:
                   guest_addr, body)
     # Address-named globals -> views onto the flat guest memory.
     mems = sorted(set(re.findall(rf"\b{a.prefix}_mem_([0-9a-fA-F]+)(?:_[bw])?\b", body)))
+    # Ghidra types Neo Geo registers as 32-bit globals even when the original
+    # instruction was a 16-bit move.w. A 32-bit binding store clobbers the next
+    # register (e.g. a move.w to $3c0002 wiping the 1 at $3c0004). Infer the
+    # width from the assignments: CONCAT22 / 32-bit casts / large constants are
+    # real long writes; 16-bit expressions and small constants are word writes.
+    io_width = {}
+    for name in mems:
+        addr = int(name, 16)
+        if not 0x3C0000 <= addr < 0x3D0000:
+            continue
+        uses = re.findall(rf"\b{a.prefix}_mem_{name}\s*=\s*([^;]+);", body)
+        if uses and not any(re.search(r"CONCAT22|uint32_t|int32_t|0x[1-9a-fA-F]{5,}", u)
+                            for u in uses):
+            io_width[name] = "uint16_t"
     for m in mems:
         addr = int(m, 16)
-        hdr += [f"#define {a.prefix}_mem_{m} (*(uint32_t *)(g_mem + 0x{addr:X}))",
+        ty = io_width.get(m, "uint32_t")
+        hdr += [f"#define {a.prefix}_mem_{m} (*({ty} *)(g_mem + 0x{addr:X}))",
                 f"#define {a.prefix}_mem_{m}_b (g_mem + 0x{addr:X})",
                 f"#define {a.prefix}_mem_{m}_w ((uint16_t *)(g_mem + 0x{addr:X}))"]
     for p in sorted(set(re.findall(rf"\b{a.prefix}_ptr_(?:mem|lbl)_([0-9a-fA-F]+)\b", body))):

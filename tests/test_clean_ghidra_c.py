@@ -58,6 +58,34 @@ class TestCleanGhidraC(unittest.TestCase):
         out = clean(SNIPPET + SNIPPET, "t")
         self.assertEqual(out.count("t_fn_100()"), 1)
 
+    def test_distinct_thunks_keep_their_bodies_and_address_aliases(self):
+        # Both thunks call the same target; keying de-duplication on that call
+        # used to silently drop the second one. Call sites name a thunk by its
+        # own address, so an alias must bridge that name to the translated body.
+        snippet = """==== C004C2 : thunk_FUN_00c16cec ====
+
+void thunk_FUN_00c16cec(void)
+
+{
+  FUN_00c16d20();
+}
+
+==== C004C8 : thunk_FUN_00c16d28 ====
+
+void thunk_FUN_00c16d28(void)
+
+{
+  FUN_00c16d20();
+  FUN_00c16d20();
+}
+"""
+        out = clean(snippet, "t")
+        self.assertIn("void t_thunk_00c16cec()", out)
+        self.assertIn("void t_thunk_00c16d28()", out)
+        self.assertIn("void t_fn_c004c2() { t_thunk_00c16cec(); }", out)
+        self.assertIn("void t_fn_c004c8() { t_thunk_00c16d28(); }", out)
+        self.assertIn("/* C004C8 : t_fn_c004c8 */", out)
+
     @unittest.skipUnless(shutil.which("gcc"), "gcc not available")
     def test_cleaned_output_compiles_without_suppression(self):
         with tempfile.TemporaryDirectory() as td:
