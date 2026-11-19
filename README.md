@@ -9,6 +9,7 @@ Experimental native Sega Saturn port of The King of Fighters '98, using [KOF98 R
 - [Cross-port study: Tekken3 and Ikemen Saturn](docs/CROSS_PORT_ENGINEERING.md)
 - [Music on Saturn](docs/MUSIC_ON_SATURN.md)
 - [Contributor instructions](AGENTS.md)
+- [Decompilation-first track](docs/DECOMP_FIRST.md) — pure-C translation of the executed guest working set (Ghidra + reproducible clean/verify pipeline)
 
 **Status by pillar.** The Saturn SH-2 now **runs the real game** and **draws its
 picture**: it executes the Neo Geo BIOS and KOF98's own 68000 code (18.8 M cart

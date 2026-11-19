@@ -13,15 +13,27 @@ public class GhidraDecompile extends GhidraScript {
     @Override
     public void run() throws Exception {
         String[] args = getScriptArgs();
-        if (args.length < 2) throw new IllegalArgumentException("usage: out.txt addr [addr...]");
+        if (args.length < 2) throw new IllegalArgumentException("usage: out.txt addr [addr...] | @addrfile");
         String out = args[0];
+        java.util.List<Long> addressList = new java.util.ArrayList<>();
+        for (int i = 1; i < args.length; i++) {
+            String arg = args[i];
+            if (arg.startsWith("@")) {
+                String text = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get(arg.substring(1))), java.nio.charset.StandardCharsets.UTF_8);
+                for (String tok : text.split("\\s+")) {
+                    if (!tok.isEmpty()) addressList.add(Long.decode(tok));
+                }
+            } else {
+                addressList.add(Long.decode(arg));
+            }
+        }
         DecompInterface decomp = new DecompInterface();
         decomp.openProgram(currentProgram);
         ConsoleTaskMonitor monitor = new ConsoleTaskMonitor();
         PrintWriter w = new PrintWriter(new FileWriter(out, false));
         try {
-            for (int i = 1; i < args.length; i++) {
-                long value = Long.decode(args[i]);
+            for (long value : addressList) {
                 Address addr = currentProgram.getAddressFactory().getDefaultAddressSpace().getAddress(value);
                 Function fn = getFunctionAt(addr);
                 if (fn == null) fn = getFunctionContaining(addr);

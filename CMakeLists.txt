@@ -91,6 +91,7 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
     add_test(NAME mk_recomp_pages COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_mk_recomp_pages.py)
     add_test(NAME profile_guest COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_profile_guest.py)
     add_test(NAME patch_musashi_ops COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_patch_musashi_ops.py)
+    add_test(NAME clean_ghidra_c COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_clean_ghidra_c.py)
   endif()
 endif()
 

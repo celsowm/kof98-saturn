@@ -24,15 +24,21 @@ def main() -> int:
     ap.add_argument("--out", type=Path, required=True)
     a = ap.parse_args()
 
+    def swap(data: bytes) -> bytearray:
+        b = bytearray(data)
+        b[0::2], b[1::2] = b[1::2], b[0::2]
+        return b
+
     img = bytearray(b"\xff" * SIZE)
-    img[0:0x100000] = a.p1.read_bytes()[:0x100000]
+    # All three program images are stored byte-swapped in the local ROM dumps
+    # (MAME 68000 convention). Ghidra's big-endian 68000 needs them swapped
+    # back; without this, every P1/P2 routine truncates with "bad instruction".
+    img[0:0x100000] = swap(a.p1.read_bytes()[:0x100000])
     if a.wram:
         w = a.wram.read_bytes()
         img[0x100000:0x100000 + len(w)] = w
-    img[0x200000:0x600000] = a.p2.read_bytes()[:0x400000]
-    bios = bytearray(a.bios.read_bytes()[:0x20000])
-    bios[0::2], bios[1::2] = bios[1::2], bios[0::2]
-    img[0xC00000:0xC20000] = bios
+    img[0x200000:0x600000] = swap(a.p2.read_bytes()[:0x400000])
+    img[0xC00000:0xC20000] = swap(a.bios.read_bytes()[:0x20000])
     a.out.parent.mkdir(parents=True, exist_ok=True)
     a.out.write_bytes(img)
     print(f"wrote {a.out} ({len(img)} bytes)")
