@@ -49,24 +49,43 @@ def main() -> int:
     lines = clean_src.splitlines()
     regs = {}
     kept = []
+    func_regs = []
     for line in lines:
+        if re.match(r"^\w+(?:\s+\w+)*\s+\w+_\w+\s*\(", line):
+            func_regs = []
         m = REG_DECL.match(line)
-        if m:
+        if m and m.group("ty") not in ("return", "goto", "case", "if", "while"):
             name = m.group("name")
-            is_ptr = bool(m.group("star").strip())
-            # Data registers are integers in the 68000 ABI, even when Ghidra
-            # types them as pointers. Otherwise treat as a pointer only when
-            # the translation unit actually dereferences it.
+            ty = m.group("ty")
+            star = m.group("star").strip()
+            decl_ty = ty + (" " + star if star else "")
+            is_ptr = bool(star)
             mm = re.match(r"(?:unaff|extraout|in)_D[0-7]", name)
             deref = bool(re.search(r"\*\s*" + re.escape(name) + r"\b", clean_src))
             if mm or not deref:
                 is_ptr = False
-            if name in regs and regs[name][1] and not is_ptr:
-                continue  # keep a pointer-typed declaration
-            regs[name] = (m.group("ty"), is_ptr)
+            indent = line[:len(line) - len(line.lstrip())]
+            # Keep the original per-function type, initialized from the
+            # shared slot. A single global macro type is unsound: the same
+            # register is declared with different types in different routines.
+            kept.append(f"{indent}{decl_ty} {name} = ({decl_ty})(uintptr_t)purec_slot_{name};")
+            func_regs.append((name, decl_ty))
+            regs.setdefault(name, (ty, is_ptr))
             continue
+        rm = re.match(r"^(\s*)return\s*(.*);\s*$", line)
+        if rm and func_regs:
+            for n, _ in func_regs:
+                kept.append(f"{rm.group(1)}purec_slot_{n} = (uintptr_t){n};")
         kept.append(line)
     body = "\n".join(kept)
+    # Ghidra assumes a 16-bit int, so it emits `(int32_t)ptr + offset` where
+    # the original 68000 simply adds a byte displacement. On a 64-bit host the
+    # int32_t cast truncates the guest-memory pointer; preserve it instead.
+    for name, (_, name_is_ptr) in regs.items():
+        if not name_is_ptr:
+            continue
+        body = re.sub(rf"\(\(\s*(?:int|uint)(?:8|16|32)?_t\s*\)\s*({re.escape(name)})\s*\+",
+                      lambda m: f"((uintptr_t){m.group(1)} +", body)
     # Ghidra `LAB_` symbols are both goto labels and data addresses. Keep the
     # macro for data uses, but give control-flow labels their own C names.
     body = re.sub(rf"\bgoto\s+{a.prefix}_lbl_([0-9a-fA-F]+)",
@@ -86,7 +105,9 @@ def main() -> int:
                       "goto guest_label_" + n, body)
     # Ghidra register locals are cast between pointer and integer types in
     # different functions; make arithmetic uses explicit.
-    for name in regs:
+    for name, (_, is_ptr) in regs.items():
+        if is_ptr:
+            continue  # casting a host pointer to uint32_t would truncate it
         body = re.sub(rf"(?<!\*)\b{re.escape(name)}\b(?=\s*(?:<<|>>|[+\-&|^]))",
                       f"((uint32_t)(uintptr_t){name})", body)
         body = re.sub(rf"(?<=[+\-/&|^])(?P<sp>\s*)\b{re.escape(name)}\b(?!\s*[=([])",
@@ -125,12 +146,17 @@ def main() -> int:
 
     hdr = ["/* Generated runtime bindings. Game-derived, local only. */",
            "#pragma once", '#include "pure_c_state.h"', ""]
-    for name, (ty, is_ptr) in sorted(regs.items()):
-        slot = f"purec_slot_{name}"
-        cast_ty = ty + " *" if is_ptr else ty
-        hdr.append(f"extern uintptr_t {slot};")
-        hdr.append(f"#define {name} (*({cast_ty} *)&{slot})")
+    for name in sorted(regs):
+        hdr.append(f"extern uintptr_t purec_slot_{name};")
     hdr += ["", "extern uint8_t g_mem[0x1000000];", ""]
+    # When guest code stores the address of a global into guest memory, the
+    # value must be the 24-bit guest address, not a truncated host pointer.
+    def guest_addr(m):
+        return str(int(m.group(1).rsplit("_", 1)[1], 16))
+    body = re.sub(rf"\(uint(?:32|64)_t\)\(uintptr_t\)&({a.prefix}_mem_[0-9a-fA-F]+)",
+                  guest_addr, body)
+    body = re.sub(rf"\(uint(?:32|64)_t\)&({a.prefix}_mem_[0-9a-fA-F]+)",
+                  guest_addr, body)
     # Address-named globals -> views onto the flat guest memory.
     mems = sorted(set(re.findall(rf"\b{a.prefix}_mem_([0-9a-fA-F]+)(?:_[bw])?\b", body)))
     for m in mems:

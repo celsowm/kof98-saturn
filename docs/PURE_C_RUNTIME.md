@@ -51,9 +51,14 @@ replace the static recomp in a running game:
 4. **Frame presentation and input**: no pad polling, VBlank timing or VDP
    output; the existing Saturn/SDL renderers still consume the interpreter's
    LSPC model, not the pure-C `g_mem` image.
-5. **Equivalence**: there is no differential check of a cleaned routine against
-   the machine recomp / Musashi from identical state. The existing
-   `ng_recomp_host` compares machine recomp vs interpreter only.
+5. **Equivalence**: `tools/build_pure_c_equiv.py` now runs the generated C and
+   the machine-generated recomp C from identical CPU/RAM state and compares
+   guest RAM. Measured on the 33 WRAM routines both implementations cover:
+   **11 exact MATCH, 5 MISMATCH, 17 not-comparable** (crash or non-returning
+   loop in isolation). The mismatches trace to called-only routines that are
+   still stubbed or only partially translated; the not-comparable set needs
+   per-routine state setup rather than the synthetic test vector. A byte-exact
+   equivalence claim is therefore **not** made.
 
 Until items 1-5 are closed, the static recomp remains the executable backend;
 the pure-C runtime is a proven, compilable and runnable alternative path.

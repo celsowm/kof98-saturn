@@ -61,7 +61,10 @@ class TestPureCRuntime(unittest.TestCase):
             exe = d / "run.exe"
             r = subprocess.run(
                 ["gcc", "-std=c11", "-Wno-error=incompatible-pointer-types",
-                 "-Wno-error=int-conversion", "-w", "-I", str(d),
+                 "-Wno-error=int-conversion", "-w",
+                 "-I", str(TOOLS / "shim"),
+                 "-I", str(ROOT / "deps" / "kof98recomp" / "neogeorecomp" / "include"),
+                 "-I", str(d),
                  "-o", str(exe), str(gen), str(d / "pure_c_helpers.c"),
                  str(d / "pure_c_main.c")], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stderr[-1000:])

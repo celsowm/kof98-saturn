@@ -50,6 +50,8 @@ def main() -> int:
     base = [str(runtime), str(TOOLS / "pure_c_helpers.c"), str(TOOLS / "pure_c_main.c")]
     common = ["-std=c11", "-Wno-error=incompatible-pointer-types",
               "-Wno-error=int-conversion", "-w",
+              "-I", str(TOOLS / "shim"),
+              "-I", str(ROOT / "deps" / "kof98recomp" / "neogeorecomp" / "include"),
               "-I", str(TOOLS), "-I", str(D)]
     r = run(["gcc", *common, "-o", str(exe), *base])
     if r.returncode:

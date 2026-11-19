@@ -1,4 +1,5 @@
-/* Shared state for the generated pure-C runtime. Local build artifact. */
+/* Shared state for generated pure-C runtime and equivalence harness.
+ * Local build artifact. */
 #ifndef PURE_C_STATE_H
 #define PURE_C_STATE_H
 #include <stdint.h>
@@ -6,17 +7,13 @@
 #include <stdio.h>
 #include <string.h>
 
-/* Flat 24-bit guest address space. Native-endian typed views are used by the
- * generated bindings, so byte/word/long accesses are self-consistent. */
+/* Flat 24-bit guest address space, native-endian typed views. */
 extern uint8_t g_mem[0x1000000];
 
-typedef struct {
-    uint32_t d[8], a[8], osp, pc;
-    uint8_t x, n, z, v, c, s, t, ipl, stopped;
-} ng_cpu_t;
-extern ng_cpu_t ng_cpu;
+/* Upstream 68000 register file (declares ng_cpu, ng_cycles, flags, helpers). */
+#include <neogeorecomp/cpu.h>
 
-/* Helper functions emitted by clean_ghidra_c.py (defined in pure_c_helpers.c). */
+/* Helpers emitted by clean_ghidra_c.py (defined in pure_c_helpers.c). */
 uint32_t bcdAdjust(int);
 void pushInvalidateCaches(int);
 void halt_unimplemented(void);
@@ -29,5 +26,8 @@ int32_t SCARRY4(int32_t, int32_t);
 int32_t CARRY1(int32_t, int32_t);
 int32_t CARRY2(int32_t, int32_t);
 int32_t SUB42(void *, int32_t);
+void ng_bad_dispatch(uint32_t pc);
+void ng_exception(int vector, uint32_t ret_pc);
+void ng_set_sr(uint16_t sr);
 
 #endif
