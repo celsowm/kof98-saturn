@@ -107,9 +107,13 @@ So generated C really executes inside the playable engine; the remaining
 entry points still use the Musashi interpreter fallback. This is a prototype
 bridge: mapped pages are copied word-swapped into the flat image around each
 dispatch, the guest continuation is read from the state word at A4, cycles are
-charged provisionally (256 per dispatch), and 0x3C0000 device writes stay in
-the flat image instead of reaching LSPC/palette/IO. It is evidence of
-integration, **not** a fidelity or playability claim.
+charged provisionally (256 per dispatch). LSPC/palette writes are now
+forwarded: the bridge snapshots the 0x3C0000/0x400000 windows around each
+dispatch and forwards changed words to `lspc_write()` / `pal_write()`.
+Measured on the same run: uncovered entry points dropped 53 -> 51 and
+interpreted instructions 182,435 -> 182,421, so device state feeds back into
+the engine. This is evidence of integration, **not** a fidelity or playability
+claim.
 
 Until items 1-6 and the bridge limitations are closed, the static recomp remains
 the executable backend; the pure-C runtime is a proven, compilable and runnable
