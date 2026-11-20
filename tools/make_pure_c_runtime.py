@@ -211,6 +211,13 @@ def main() -> int:
                   guest_addr, body)
     body = re.sub(rf"\(uint(?:32|64)_t\)&({a.prefix}_mem_[0-9a-fA-F]+)",
                   guest_addr, body)
+    # A pointer cast of an address-named global means "address of that guest
+    # global", not "integer value stored there cast to a host pointer".
+    # The clean pass sometimes drops the `&`, so restore the g_mem base here.
+    def mem_addr_as_ptr(m):
+        return f"(({m.group(1)})(g_mem + 0x{int(m.group(2), 16):X}))"
+    body = re.sub(rf"\(\s*((?:uint|int|char|void)\w*\s*\*+)\s*\)\s*&?{a.prefix}_mem_([0-9a-fA-F]+)\b",
+                  mem_addr_as_ptr, body)
     # Address-named globals -> views onto the flat guest memory.
     mems = sorted(set(re.findall(rf"\b{a.prefix}_mem_([0-9a-fA-F]+)(?:_[bw])?\b", body)))
     # Ghidra types Neo Geo registers as 32-bit globals even when the original
