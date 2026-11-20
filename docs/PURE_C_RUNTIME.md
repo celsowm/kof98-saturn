@@ -293,6 +293,13 @@ C writes update only one array, so the mirror cannot stay consistent without
 explicit accessors. Reverted. This confirms the required change is a complete
 source-level accessor conversion, not a change of memory layout.
 
+A clang-AST inventory of the 70-routine runtime (`clang -Xclang -ast-dump=json`)
+quantified the conversion: 417 byte-width derefs (248 `uint8_t`, 169 `int8_t`),
+~702 word/long derefs and 44 byte-width subscripts. An AST-range rewriter was
+attempted but clang's JSON offsets are relative to preprocessed source when
+macros are present, so replacements landed inside macro tokens and corrupted
+the output. The inventory is recorded; the rewriter was not kept.
+
 The validated word-swapped bridge was restored: 7,920 dispatches in 10 frames,
 equivalence `18 MATCH, 1 MISMATCH, 13 crash, 1 timeout`, 41/41 host tests,
 purity gate PASS.
