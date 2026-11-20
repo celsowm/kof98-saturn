@@ -184,8 +184,23 @@ build's changes every frame.
 Consequently the frame divergence is **not** primarily a byte-order problem:
 the required work is to model control-flow exits (`rts`/`jmp`/branch targets
 and flags) in the generated C so the dispatcher can advance, before or together
-with any endianness accessor conversion. Re-enabling the interpreter fallback
-for routines that cannot propagate a PC is the immediate bounded fix to test.
+with any endianness accessor conversion.
+
+An automated bounded experiment excluded stuck entries one at a time so the
+interpreter would handle them:
+
+```
+iter=0 stuck C116AA   native 12672
+iter=1 stuck C116D0   native 12671
+iter=2 stuck C16CEC   native 11800
+iter=3 stuck C16D20   native 11799
+iter=4 crash (access violation), no rendered frame
+```
+
+The four exclusions are BIOS thunks/leaf routines that do not propagate a PC.
+Excluding them does not converge: more such routines appear and the run
+eventually crashes. This confirms that a per-routine exclusion list is not a
+fix; control-flow exits must be modelled in the translation itself.
 
 A partial big-endian accessor conversion was also attempted: `G8/G16/G32`
 loads and `S8/S16/S32` stores for explicit-cast derefs, plus a big-endian bus
