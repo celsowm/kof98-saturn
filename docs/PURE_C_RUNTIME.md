@@ -160,9 +160,20 @@ generated memory access, not a bridge-level copy. The experiment was reverted.
 
 Charging 8 cycles per dispatch instead of 256 hit the 500,000-dispatch cap
 before frame 30, confirming the provisional 256 charge is needed for frame
-progression. The validated word-swapped bridge was restored: 7,920 dispatches
-in 10 frames, equivalence `18 MATCH, 1 MISMATCH, 13 crash, 1 timeout`, 41/41
-host tests, purity gate PASS.
+progression.
+
+A partial big-endian accessor conversion was also attempted: `G8/G16/G32`
+loads and `S8/S16/S32` stores for explicit-cast derefs, plus a big-endian bus
+shim for the equivalence harness. It produced only `7 MATCH, 16 MISMATCH`,
+because the generated C still contained 57 raw cast derefs, 193 typed register
+derefs and 50 typed-pointer subscripts that kept native-endian semantics. A
+mixed model is invalid; the conversion must cover **every** guest access
+(binding macros, typed pointer locals, subscripts and pointer arithmetic) before
+it can be measured. The partial pass was reverted.
+
+The validated word-swapped bridge was restored: 7,920 dispatches in 10 frames,
+equivalence `18 MATCH, 1 MISMATCH, 13 crash, 1 timeout`, 41/41 host tests,
+purity gate PASS.
 
 Until items 1-6 and the memory-model gap are closed, the static recomp remains
 the executable backend; the pure-C runtime is a proven, compilable and runnable
