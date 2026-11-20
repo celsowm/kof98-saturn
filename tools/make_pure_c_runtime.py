@@ -144,14 +144,43 @@ def main() -> int:
     # (e.g. (uint32_t *)((int16_t)(sVar9 * 4) + 0xc1543c)) must address g_mem,
     # not raw host memory. Only rewrite expressions that contain such a large
     # literal and do not already use g_mem.
-    def guest_addr_cast(m):
-        expr = m.group(3)
-        if "g_mem" in expr or not re.search(r"0x[1-9a-fA-F][0-9a-fA-F]{5,}", expr):
-            return m.group(0)
-        return f"(({m.group(1)})(g_mem + (uint32_t){m.group(2)}))"
-    body = re.sub(r"\(\s*((?:uint|int|char|void)\w*\s*\*+)\s*\)\s*"
-                  r"(\(((?:[^()]|\([^()]*\))*)\))",
-                  guest_addr_cast, body)
+    def map_guest_addr_casts(text):
+        out = []
+        pos = 0
+        pat = re.compile(r"\(\s*((?:uint|int|char|void)\w*\s*\*+)\s*\)")
+        while True:
+            m = pat.search(text, pos)
+            if not m:
+                out.append(text[pos:])
+                break
+            out.append(text[pos:m.end()])
+            # Find the matching ')' of the expression after the cast.
+            j = m.end()
+            while j < len(text) and text[j].isspace():
+                j += 1
+            if j < len(text) and text[j] == '(':
+                depth, k = 0, j
+                while k < len(text):
+                    if text[k] == '(':
+                        depth += 1
+                    elif text[k] == ')':
+                        depth -= 1
+                        if depth == 0:
+                            break
+                    k += 1
+                if k < len(text):
+                    expr = text[j + 1:k]
+                    if ("g_mem" not in expr
+                            and re.search(r"0x[1-9a-fA-F][0-9a-fA-F]{5,}", expr)):
+                        out.append(f"(g_mem + (uint32_t)({expr}))")
+                        pos = k + 1
+                        continue
+                out.append(text[m.end():k + 1])
+                pos = k + 1
+            else:
+                pos = m.end()
+        return "".join(out)
+    body = map_guest_addr_casts(body)
     # Ghidra `LAB_` symbols are both goto labels and data addresses. Keep the
     # macro for data uses, but give control-flow labels their own C names.
     body = re.sub(rf"\bgoto\s+{a.prefix}_lbl_([0-9a-fA-F]+)",

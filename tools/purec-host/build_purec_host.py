@@ -70,6 +70,20 @@ def main() -> int:
         return 2
     dispatch_fn = dm.group(1)
     addrs = sorted(set(int(x, 16) for x in re.findall(r"case 0x([0-9A-Fa-f]+)u:", txt)))
+    # Ghidra decompiles some 68000 loops (dbra/bra back-edges) into an empty
+    # `do {} while(true)`, which would hang the engine. Those routines are not
+    # usable as native entries; leave them to the interpreter fallback.
+    def has_empty_hang(addr):
+        m = re.search(rf"/\* {addr:06X} :.*?(?=/\* [0-9A-F]{{6}} : |\Z)",
+                      txt, re.S | re.I)
+        if not m:
+            return False
+        return bool(re.search(r"while\s*\(\s*true\s*\)\s*;|for\s*\(\s*;\s*;\s*\)\s*;",
+                              m.group(0)))
+    hang_addrs = [a for a in addrs if has_empty_hang(a)]
+    addrs = [a for a in addrs if a not in set(hang_addrs)]
+    if hang_addrs:
+        print(f"excluded {len(hang_addrs)} routines with decompiler hang placeholders")
     if not addrs:
         print("no dispatch entries in runtime", file=sys.stderr)
         return 2
@@ -79,19 +93,29 @@ def main() -> int:
         "#include <neogeorecomp/neogeo.h>",
         "#include <neogeorecomp/bus.h>",
         "#include <stdint.h>",
+        "#include <stdio.h>",
+        "#include <stdlib.h>",
         "#include <string.h>",
         "",
         "uint8_t g_mem[0x1000000];",
         f"int {dispatch_fn}(uint32_t pc);",
         "/* Internal engine device writes (declared here, defined in libneogeorecomp). */",
         "void lspc_write(uint32_t addr, uint16_t v);",
+        "uint16_t lspc_read(uint32_t addr);",
         "void pal_write(uint32_t addr, uint16_t v);",
+        "uint16_t pal_read(uint32_t addr);",
         "void io_write8(uint32_t a, uint8_t v);",
         "",
         "#define IO_LO 0x3C0000u",
         "#define IO_WORDS 8u",
         "#define PAL_LO 0x400000u",
         "#define PAL_WORDS 0x400u",
+        "static void device_load(void) {",
+        "    for (unsigned i = 0; i < IO_WORDS; i++)",
+        "        *(uint16_t *)(g_mem + IO_LO + 2 * i) = lspc_read(IO_LO + 2 * i);",
+        "    for (unsigned i = 0; i < PAL_WORDS; i++)",
+        "        *(uint16_t *)(g_mem + PAL_LO + 2 * i) = pal_read(PAL_LO + 2 * i);",
+        "}",
         "static uint16_t io_before[IO_WORDS], pal_before[PAL_WORDS];",
         "static void device_snapshot(void) {",
         "    for (unsigned i = 0; i < IO_WORDS; i++)",
@@ -137,20 +161,39 @@ def main() -> int:
         "}",
         "",
         "#define PUREC_CYCLES_PER_DISPATCH 256",
+        "static int purec_valid_pc(uint32_t pc) {",
+        "    switch (pc) {",
+    ]
+    for addr in addrs:
+        lines.append(f"    case 0x{addr:06X}u: return 1;")
+    lines += [
+        "    default: return 0; }",
+        "}",
         "",
     ]
     for addr in addrs:
         lines += [
             f"static void purec_{addr:06X}(void) {{",
             "    purec_dispatches++;",
+            "    if (purec_dispatches > 500000) {",
+            "        fprintf(stderr, \"[purec] dispatch cap hit at pc=%06X\\n\", CPU.pc);",
+            "        abort();",
+            "    }",
+            "    if ((purec_dispatches % 10000) == 0)",
+            "        fprintf(stderr, \"[purec-trace] n=%llu pc=%06X\\n\",",
+            "                (unsigned long long)purec_dispatches, CPU.pc);",
             "    mapped_to_gmem();",
+            "    device_load();",
             "    device_snapshot();",
             f"    int hit = {dispatch_fn}(0x{addr:06X}u);",
             "    device_forward();",
             "    if (hit) purec_hits++;",
             "    /* The decompiled C writes the guest continuation into the",
             "     * state word at A4; feed it back to the engine dispatcher. */",
-            "    if (hit) CPU.pc = *(uint32_t *)(g_mem + (CPU.a[4] & 0xFFFFFF));",
+            "    if (hit) {",
+            "        uint32_t next = *(uint32_t *)(g_mem + (CPU.a[4] & 0xFFFFFF));",
+            "        if (purec_valid_pc(next) && next != CPU.pc) CPU.pc = next;",
+            "    }",
             "    gmem_to_mapped();",
             "    ng_cycles += PUREC_CYCLES_PER_DISPATCH;",
             "    purec_cycles += PUREC_CYCLES_PER_DISPATCH;",

@@ -115,6 +115,30 @@ interpreted instructions 182,435 -> 182,421, so device state feeds back into
 the engine. This is evidence of integration, **not** a fidelity or playability
 claim.
 
-Until items 1-6 and the bridge limitations are closed, the static recomp remains
+### Full-profile run (2,001 usable entries)
+
+The 2,112-entry all-profile runtime can also drive the engine. Routines whose
+Ghidra body contains an empty `do {} while(true)` (111 of them) are excluded
+from the pure-C table and left to the interpreter, because they would hang.
+Measured headless, 10 frames:
+
+```
+[neogeorecomp] kof98: 2001 recompiled entry points
+[exec] native blocks 7920, interpreted instructions 7, 2 uncovered entry points
+[purec] dispatches=7920 hits=7920 cycles=2027520
+```
+
+A 600-frame run completed with 475,200 pure-C dispatches and 7 interpreted
+instructions. **This is guest execution almost entirely in generated C inside
+the real player** — the closest result so far to "playable pure C" on host.
+
+It is still not visually correct: frame 30 from the pure-C build is uniformly
+(4,4,4), while the interpreter-only baseline frame 30 has 66,306 pixels of
+(246,246,246). The likely cause is the prototype memory bridge: word-swapping
+makes 16-bit guest reads agree but breaks the many 8-bit WRAM accesses, and
+device state is only partially mirrored. Fixing that needs big-endian-neutral
+accessors in the generated C, not another bridge tweak.
+
+Until items 1-6 and the memory-model gap are closed, the static recomp remains
 the executable backend; the pure-C runtime is a proven, compilable and runnable
 alternative path.
