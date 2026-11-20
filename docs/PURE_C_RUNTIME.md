@@ -202,6 +202,21 @@ Excluding them does not converge: more such routines appear and the run
 eventually crashes. This confirms that a per-routine exclusion list is not a
 fix; control-flow exits must be modelled in the translation itself.
 
+An `rts`-exit contract was also implemented in the bridge: when the A4 state
+word did not change, the thunk popped the engine stack with `ng_pop32()` to set
+`CPU.pc`. Measured on 16 frames:
+
+```
+native blocks 1, interpreted instructions 381839, 17 uncovered entry points
+[purec] dispatches=1 hits=1 cycles=256
+frame 15: still uniformly (4,4,4)
+```
+
+The single pure-C dispatch handed control back to the interpreter but the frame
+was still dark, so a lone routine also corrupts guest/device state — the
+word-swapped bridge and the missing control-flow model are both real blockers.
+The contract was reverted; validated state restored.
+
 A partial big-endian accessor conversion was also attempted: `G8/G16/G32`
 loads and `S8/S16/S32` stores for explicit-cast derefs, plus a big-endian bus
 shim for the equivalence harness. It produced only `7 MATCH, 16 MISMATCH`,
