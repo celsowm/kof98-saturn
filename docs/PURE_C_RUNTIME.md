@@ -162,6 +162,31 @@ Charging 8 cycles per dispatch instead of 256 hit the 500,000-dispatch cap
 before frame 30, confirming the provisional 256 charge is needed for frame
 progression.
 
+### Root cause of the dark frame (measured, 2026-11-20)
+
+Dispatch/PC tracing in the host adapter found the actual blocker:
+
+```
+[pcseq] 1 C116AA ... [pcseq] 40 C116AA     (first 40 dispatches, identical)
+[bridge] next=F3000010 valid=0             (A4 state word is garbage for this BIOS routine)
+[ret] a7=10F2FC ret=102600C1               (guest stack has no valid return address)
+```
+
+Ghidra's C abstracts the 68000 register ABI: a `rts` becomes a plain C
+`return`, and only the WRAM state-machine routines store their continuation in
+the A4 state word. BIOS/leaf routines do neither, so the generated C never
+communicates a next PC to the engine. The bridge's "7920 native blocks in 10
+frames" are repeated dispatches of the same entry, not forward progress — the
+guest is stuck before the boot flash at frame 15. This also explains why the
+flat image's WRAM hash is constant across frame counts while the interpreter
+build's changes every frame.
+
+Consequently the frame divergence is **not** primarily a byte-order problem:
+the required work is to model control-flow exits (`rts`/`jmp`/branch targets
+and flags) in the generated C so the dispatcher can advance, before or together
+with any endianness accessor conversion. Re-enabling the interpreter fallback
+for routines that cannot propagate a PC is the immediate bounded fix to test.
+
 A partial big-endian accessor conversion was also attempted: `G8/G16/G32`
 loads and `S8/S16/S32` stores for explicit-cast derefs, plus a big-endian bus
 shim for the equivalence harness. It produced only `7 MATCH, 16 MISMATCH`,
