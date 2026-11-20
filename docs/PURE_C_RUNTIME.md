@@ -139,6 +139,31 @@ makes 16-bit guest reads agree but breaks the many 8-bit WRAM accesses, and
 device state is only partially mirrored. Fixing that needs big-endian-neutral
 accessors in the generated C, not another bridge tweak.
 
+### Memory-bridge experiments (rejected, with evidence)
+
+A whole-engine native-endian bus shim was attempted: `tools/shim/neogeorecomp/bus.h`
+was extended to make `ng_r8/16/32` and `ng_w8/16/32` read/write flat `g_mem`,
+the engine targets were given that include path first, and the adapter's page
+copying was removed. Results:
+
+- raw page copies into `g_mem`: `native blocks 0, interpreted instructions
+  219191`, `dispatches=0`, and frame 30 still uniformly `(4,4,4)` — boot no
+  longer reached any pure-C entry;
+- word-swapped copies during page sync: immediate access violation before
+  frame 30.
+
+Cause: the engine's recompiled/interpreter code compares big-endian guest word
+values against embedded numeric constants, while byte-wide guest accesses use
+the opposite byte of a word after swapping. A single untyped `g_mem` cannot
+satisfy both; the fix has to be explicit endianness-aware accessors at every
+generated memory access, not a bridge-level copy. The experiment was reverted.
+
+Charging 8 cycles per dispatch instead of 256 hit the 500,000-dispatch cap
+before frame 30, confirming the provisional 256 charge is needed for frame
+progression. The validated word-swapped bridge was restored: 7,920 dispatches
+in 10 frames, equivalence `18 MATCH, 1 MISMATCH, 13 crash, 1 timeout`, 41/41
+host tests, purity gate PASS.
+
 Until items 1-6 and the memory-model gap are closed, the static recomp remains
 the executable backend; the pure-C runtime is a proven, compilable and runnable
 alternative path.
