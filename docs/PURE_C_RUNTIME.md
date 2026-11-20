@@ -287,6 +287,12 @@ explicit 8-bit casts plus a flipped `ng_r8/ng_w8` in the bus shim. It produced
 unconverted. This closes the last bridge-level shortcut: every endianness model
 requires complete conversion of all access forms. Reverted.
 
+A dual-array memory model (guest-order bytes for 8-bit pointers, word-order
+native for wider pointers) was also measured: `6 MATCH, 12 MISMATCH`. Generated
+C writes update only one array, so the mirror cannot stay consistent without
+explicit accessors. Reverted. This confirms the required change is a complete
+source-level accessor conversion, not a change of memory layout.
+
 The validated word-swapped bridge was restored: 7,920 dispatches in 10 frames,
 equivalence `18 MATCH, 1 MISMATCH, 13 crash, 1 timeout`, 41/41 host tests,
 purity gate PASS.
