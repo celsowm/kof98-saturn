@@ -83,5 +83,34 @@ replace the static recomp in a running game:
    alone: the generator still needs to distinguish guest-address arithmetic
    from host-pointer arithmetic. This remains open and is reported as such.
 
-Until items 1-6 are closed, the static recomp remains the executable backend;
-the pure-C runtime is a proven, compilable and runnable alternative path.
+## Host integration (pure C inside the playable engine)
+
+`tools/purec-host/` builds a variant of the upstream SDL player that hands a
+pure-C dispatch table to the real `ng_main()` engine. The pinned reference port
+is built from source but never edited; only game-derived adapter/runtime files
+are generated under ignored `local/purec-host/`.
+
+```
+python tools/purec-host/build_purec_host.py
+./local/build-purec/kof98_purec.exe --frames 30 --headless --rom-path roms
+```
+
+Measured with the 70-entry WRAM runtime (2026-11-19):
+
+```
+[neogeorecomp] kof98: 70 recompiled entry points
+[exec] native blocks 27, interpreted instructions 182435, 53 uncovered entry points
+[purec] dispatches=27 hits=27 cycles=6912
+```
+
+So generated C really executes inside the playable engine; the remaining
+entry points still use the Musashi interpreter fallback. This is a prototype
+bridge: mapped pages are copied word-swapped into the flat image around each
+dispatch, the guest continuation is read from the state word at A4, cycles are
+charged provisionally (256 per dispatch), and 0x3C0000 device writes stay in
+the flat image instead of reaching LSPC/palette/IO. It is evidence of
+integration, **not** a fidelity or playability claim.
+
+Until items 1-6 and the bridge limitations are closed, the static recomp remains
+the executable backend; the pure-C runtime is a proven, compilable and runnable
+alternative path.

@@ -197,7 +197,7 @@ def main() -> int:
 
     mainc = D / "equiv_main.c"
     mainc.write_text(MAIN, encoding="utf-8")
-    cmd = ["gcc", "-std=c11", "-w", "-Wno-error=incompatible-pointer-types",
+    cmd = ["gcc", "-std=c11", "-g", "-w", "-Wno-error=incompatible-pointer-types",
            "-Wno-error=int-conversion"]
     if a.include_stack:
         cmd.append("-DEXCLUDE_STACK=0")

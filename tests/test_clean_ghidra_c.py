@@ -58,6 +58,15 @@ class TestCleanGhidraC(unittest.TestCase):
         out = clean(SNIPPET + SNIPPET, "t")
         self.assertEqual(out.count("t_fn_100()"), 1)
 
+    def test_wrapped_negative_subscript_is_normalised(self):
+        # Ghidra emits ptr[-0xffffffff00000001] for ptr[-1]. On a 64-bit host
+        # that scales to an ~8 GiB displacement and faults.
+        snippet = SNIPPET.replace("*puVar1 = 0x1234;",
+                                  "puVar1[-0xffffffff00000001] = 0x1234;")
+        out = clean(snippet, "t")
+        self.assertIn("puVar1[-1]", out)
+        self.assertNotIn("ffffffff00000001", out)
+
     def test_distinct_thunks_keep_their_bodies_and_address_aliases(self):
         # Both thunks call the same target; keying de-duplication on that call
         # used to silently drop the second one. Call sites name a thunk by its

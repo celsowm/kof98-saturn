@@ -153,6 +153,15 @@ def clean(text: str, prefix: str) -> str:
     text = re.sub(r"\b([A-Za-z_][A-Za-z0-9_]*)\._([0-9a-fA-F]+)_([0-9a-fA-F]+)_\b",
                   lambda m: f"(*(uint{8 * int(m.group(3), 16)}_t *)((uintptr_t)&{m.group(1)} + {int(m.group(2), 16)}))",
                   text)
+    # Ghidra sometimes wraps a 32-bit negative array subscript into a 64-bit
+    # literal: ptr[-0xffffffff00000001] means ptr[-1]. On a 64-bit host that
+    # scales to an ~8 GiB displacement and faults. Reduce such literals to
+    # their signed 32-bit value when the result is a small displacement.
+    def fix_wrapped_subscript(m):
+        v = int(m.group(1), 16)
+        s = ((v + 0x80000000) % 0x100000000) - 0x80000000
+        return m.group(0) if v == s or abs(s) >= 0x1000000 else f"[{s}]"
+    text = re.sub(r"\[\s*(-?0x[0-9a-fA-F]+)\s*\]", fix_wrapped_subscript, text)
     # Ghidra's `(void)` prototypes reject calls that lost arguments in the
     # register ABI; unprototyped `()` keeps those calls valid C11.
     text = text.replace("(void)", "()")

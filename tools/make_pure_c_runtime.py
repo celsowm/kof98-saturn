@@ -50,9 +50,29 @@ def main() -> int:
     regs = {}
     kept = []
     func_regs = []
+    func_int_regs = set()
+    # A register name is declared differently in different routines. If any
+    # routine uses it as a pointer (deref, subscript or cast), its slot holds a
+    # host pointer into g_mem; force that representation for every declaration
+    # so guest addresses are never dereferenced as host addresses.
+    reg_used_as_ptr = set()
     for line in lines:
-        if re.match(r"^\w+(?:\s+\w+)*\s+\w+_\w+\s*\(", line):
+        dm = REG_DECL.match(line)
+        if not dm:
+            continue
+        n = dm.group("name")
+        if (re.search(r"\*\s*" + re.escape(n) + r"\b", clean_src)
+                or re.search(r"\b" + re.escape(n) + r"\s*\[", clean_src)
+                or re.search(r"\b" + re.escape(n) + r"\s*->", clean_src)
+                or re.search(r"\(\s*(?:uint|int)\w+\s*\*+[^)]*\)\s*\([^)]*\b"
+                             + re.escape(n) + r"\b", clean_src)
+                or re.search(r"\(\s*(?:uint|int)\w+\s*\*+\s*\)\s*" + re.escape(n) + r"\b",
+                             clean_src)):
+            reg_used_as_ptr.add(n)
+    for line in lines:
+        if re.match(r"^[\w\s\*]+\b\w+_\w+\s*\(", line):
             func_regs = []
+            func_int_regs = set()
         m = REG_DECL.match(line)
         if m and m.group("ty") not in ("return", "goto", "case", "if", "while"):
             name = m.group("name")
@@ -71,17 +91,45 @@ def main() -> int:
             # use the union of those signals.
             is_ptr = False if mm else (bool(star) or deref)
             indent = line[:len(line) - len(line.lstrip())]
-            # Keep the original per-function type, initialized from the
-            # shared slot. A single global macro type is unsound: the same
-            # register is declared with different types in different routines.
-            kept.append(f"{indent}{decl_ty} {name} = ({decl_ty})(uintptr_t)purec_slot_{name};")
+            # The shared slot has ONE representation (host pointer for
+            # pointer-classified registers, raw guest address otherwise), but
+            # a register name is declared as an integer in some routines and a
+            # pointer in others. Convert to the representation this declaration
+            # expects; pointer casts of integer locals are patched below.
+            local_is_ptr = bool(star)
+            slot_is_ptr = regs.get(name, (ty, is_ptr))[1]
+            if local_is_ptr:
+                init = (f"(uintptr_t)purec_slot_{name}" if slot_is_ptr else
+                        f"(uintptr_t)(g_mem + (uint32_t)purec_slot_{name})")
+            else:
+                init = (f"(uintptr_t)((uint32_t)(purec_slot_{name} - (uintptr_t)g_mem))"
+                        if slot_is_ptr else f"(uintptr_t)purec_slot_{name}")
+            kept.append(f"{indent}{decl_ty} {name} = ({decl_ty}){init};")
             func_regs.append((name, decl_ty))
+            if not local_is_ptr:
+                func_int_regs.add(name)
             regs.setdefault(name, (ty, is_ptr))
             continue
+        # An integer register local holds a 24-bit guest address. A cast such
+        # as (uint32_t **)(extraout_A1 + 8) must address g_mem, not raw host
+        # memory. Rewrite only casts of integer-declared register locals.
+        for rn in func_int_regs:
+            line = re.sub(
+                rf"\(\s*((?:uint|int|void)\w*\s*\*+)\s*\)\s*\(\s*({re.escape(rn)})\s*([+\-]\s*[^()]*[^()])?\s*\)",
+                lambda m: f"(({m.group(1)})(g_mem + (uint32_t)({m.group(2)}"
+                          f"{m.group(3) or ''})))", line)
         rm = re.match(r"^(\s*)return\s*(.*);\s*$", line)
         if rm and func_regs:
-            for n, _ in func_regs:
-                kept.append(f"{rm.group(1)}purec_slot_{n} = (uintptr_t){n};")
+            for n, decl in func_regs:
+                slot_is_ptr = regs.get(n, ("uint32_t", False))[1]
+                local_is_ptr = "*" in decl
+                if local_is_ptr == slot_is_ptr:
+                    store = f"(uintptr_t){n}"
+                elif local_is_ptr:
+                    store = f"(uintptr_t)((uint32_t)({n} - (uintptr_t)g_mem))"
+                else:
+                    store = f"(uintptr_t)(g_mem + (uint32_t){n})"
+                kept.append(f"{rm.group(1)}purec_slot_{n} = {store};")
         kept.append(line)
     body = "\n".join(kept)
     # Ghidra assumes a 16-bit int, so it emits `(int32_t)ptr + offset` where
