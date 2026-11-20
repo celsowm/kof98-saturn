@@ -254,6 +254,24 @@ alone cannot fix them. The translation must preserve routine boundaries and
 resume-label switches like the recomp does, then map C returns back to the
 correct guest successor. That is the concrete remaining implementation.
 
+A first PC-successor contract was built and measured: the manifest generator
+also emits a fall-through map (`176024` resume-label -> next-label pairs), and
+the bridge installed that successor when the A4 state word didn't change.
+Result on 16 frames:
+
+```
+native blocks 1, interpreted instructions 381838, 20 uncovered entry points
+[purec] dispatches=1 hits=1 cycles=256
+frame 15: still uniformly (4,4,4)
+```
+
+The single BIOS fragment then handed control back but the frame remained dark:
+`kof_fn_c116aa` does byte-wide compares of ROM text at `$c116da`, and the
+word-swapped bridge flips the bytes inside each word, so the fragment computes
+the wrong result. Correct control flow and correct byte semantics are both
+required; fixing only successors is insufficient. The successor wiring was
+reverted, while the manifest/successor generators were kept as tooling.
+
 A partial big-endian accessor conversion was also attempted: `G8/G16/G32`
 loads and `S8/S16/S32` stores for explicit-cast derefs, plus a big-endian bus
 shim for the equivalence harness. It produced only `7 MATCH, 16 MISMATCH`,

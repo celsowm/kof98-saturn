@@ -57,6 +57,35 @@ def main() -> int:
     out.write_text("\n".join(lines), encoding="utf-8")
     print(f"bsr sites: {len(entries)}, unique callees: {len(by_target)}, "
           f"unambiguous: {len(unique)}, ambiguous: {len(ambiguous)}")
+
+    # Fall-through successor for each resume label: the next label emitted in
+    # the same recompiled routine. This is the guest PC a decompiled fragment
+    # should install when its C body returns without an explicit state update.
+    succ = {}
+    for path in sorted(Path(a.src).glob("recomp_*.c")):
+        text = path.read_text(errors="replace")
+        for block in re.split(r"(?=void r_[0-9A-Fa-f]+\(void\))", text):
+            labels = re.findall(r"^L_([0-9A-Fa-f]{6}):", block, re.M)
+            for i, lab in enumerate(labels[:-1]):
+                succ.setdefault(int(lab, 16), int(labels[i + 1], 16))
+    hdr = Path(a.out).with_suffix(".h")
+    h = [
+        "/* Generated guest PC fall-through map. Game-derived, local only. */",
+        "#pragma once",
+        "#include <stdint.h>",
+        "typedef struct { uint32_t pc, next; } purec_succ_t;",
+        "extern const purec_succ_t purec_succ[];",
+        f"extern const unsigned purec_succ_count;",
+        "",
+    ]
+    hdr.write_text("\n".join(h), encoding="utf-8")
+    out2 = Path(a.out).with_name("successors.c")
+    sl = ["#include \"exit_manifest.h\"", "const purec_succ_t purec_succ[] = {"]
+    for pc, nxt in sorted(succ.items()):
+        sl.append(f"    {{ 0x{pc:06X}u, 0x{nxt:06X}u }},")
+    sl += ["};", f"const unsigned purec_succ_count = {len(succ)};", ""]
+    out2.write_text("\n".join(sl), encoding="utf-8")
+    print(f"fall-through successors: {len(succ)}")
     return 0
 
 

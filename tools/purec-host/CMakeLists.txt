@@ -20,6 +20,11 @@ file(GLOB PUREC_STUBS "${GEN_DIR}/*_stubs.c")
 if(PUREC_STUBS)
     target_sources(kof98_purec PRIVATE ${PUREC_STUBS})
 endif()
+foreach(EXTRA "${GEN_DIR}/exit_manifest.c" "${GEN_DIR}/successors.c")
+    if(EXISTS ${EXTRA})
+        target_sources(kof98_purec PRIVATE ${EXTRA})
+    endif()
+endforeach()
 target_include_directories(kof98_purec PRIVATE
     ${NG_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/../../deps/kof98recomp/src
