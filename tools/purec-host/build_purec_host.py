@@ -51,6 +51,10 @@ def main() -> int:
     ap.add_argument("--runtime", default=str(ROOT / "local" / "decomp" / "wram_runtime.c"))
     ap.add_argument("--build-dir", default=str(ROOT / "local" / "build-purec"))
     ap.add_argument("--no-build", action="store_true")
+    ap.add_argument("--wram-only", action="store_true",
+                    help="only install WRAM routines, which propagate their "
+                         "continuation through the A4 state word; leave BIOS "
+                         "control flow to the recomp/interpreter")
     a = ap.parse_args()
 
     runtime = Path(a.runtime)
@@ -84,6 +88,10 @@ def main() -> int:
     addrs = [a for a in addrs if a not in set(hang_addrs)]
     if hang_addrs:
         print(f"excluded {len(hang_addrs)} routines with decompiler hang placeholders")
+    if a.wram_only:
+        before = len(addrs)
+        addrs = [x for x in addrs if 0x100000 <= x < 0x110000]
+        print(f"wram-only: {before} -> {len(addrs)} entries")
     if not addrs:
         print("no dispatch entries in runtime", file=sys.stderr)
         return 2

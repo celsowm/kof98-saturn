@@ -217,6 +217,25 @@ was still dark, so a lone routine also corrupts guest/device state — the
 word-swapped bridge and the missing control-flow model are both real blockers.
 The contract was reverted; validated state restored.
 
+`--wram-only` isolation (build_purec_host.py) produced the clearest evidence yet:
+
+```
+62 WRAM entries installed
+16 frames:  native blocks 0, dispatches 0
+           frame 15 = 67738 white pixels, identical to baseline
+600 frames: native blocks 0, dispatches 0
+           frame 500 = 61722 dark + 9958 white, identical to baseline
+```
+
+So the bridge/device model is capable of producing **pixel-identical baseline
+frames** when pure C does not execute. All guest code reached in these frames
+lives in BIOS ROM (0xCxxxxx), and the 2001-entry table's "dispatches" were the
+stuck C116AA loop. Making the port playable therefore requires working PC
+propagation for BIOS routines specifically; WRAM routines are not reached at
+all in this window. A full 600-frame run's matching frame 500 is the first
+frame-level equivalence evidence in this work, but it is with zero pure-C
+execution and must not be presented as pure-C playability.
+
 A partial big-endian accessor conversion was also attempted: `G8/G16/G32`
 loads and `S8/S16/S32` stores for explicit-cast derefs, plus a big-endian bus
 shim for the equivalence harness. It produced only `7 MATCH, 16 MISMATCH`,
