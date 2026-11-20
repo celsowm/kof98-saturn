@@ -236,6 +236,24 @@ all in this window. A full 600-frame run's matching frame 500 is the first
 frame-level equivalence evidence in this work, but it is with zero pure-C
 execution and must not be presented as pure-C playability.
 
+### Why BIOS fragments cannot just be dispatched by address
+
+Inspecting the recomp tables shows that the "stuck" PCs are **not independent
+routines**: `0xC11006`, `0xC11026` and many others all map to the same
+`r_C11002`, whose `switch (CPU.pc)` resumes at internal labels. Ghidra instead
+emitted a separate `kof_fn_c116aa()` for the fragment, whose C body is a
+self-contained string compare ending in plain `return;` with no guest PC or
+flag output. Dispatching that fragment by address therefore cannot continue
+the original routine — exactly the observed fixed-PC loop.
+
+`tools/purec-host/build_exit_manifest.py` now derives the guest `bsr` return
+addresses from the recomp (`ng_push32(RET); CPU.pc = TARGET;`), measured as
+`17669 bsr sites, 512 callees, 283 unambiguous`. Those four stuck PCs have **no
+bsr caller at all** — they are branch resume points — so a bsr/rts stack model
+alone cannot fix them. The translation must preserve routine boundaries and
+resume-label switches like the recomp does, then map C returns back to the
+correct guest successor. That is the concrete remaining implementation.
+
 A partial big-endian accessor conversion was also attempted: `G8/G16/G32`
 loads and `S8/S16/S32` stores for explicit-cast derefs, plus a big-endian bus
 shim for the equivalence harness. It produced only `7 MATCH, 16 MISMATCH`,
