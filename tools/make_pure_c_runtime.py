@@ -140,6 +140,18 @@ def main() -> int:
             continue
         body = re.sub(rf"\(\(\s*(?:int|uint)(?:8|16|32)?_t\s*\)\s*({re.escape(name)})\s*\+",
                       lambda m: f"((uintptr_t){m.group(1)} +", body)
+    # A pointer cast whose expression contains an absolute guest address
+    # (e.g. (uint32_t *)((int16_t)(sVar9 * 4) + 0xc1543c)) must address g_mem,
+    # not raw host memory. Only rewrite expressions that contain such a large
+    # literal and do not already use g_mem.
+    def guest_addr_cast(m):
+        expr = m.group(3)
+        if "g_mem" in expr or not re.search(r"0x[1-9a-fA-F][0-9a-fA-F]{5,}", expr):
+            return m.group(0)
+        return f"(({m.group(1)})(g_mem + (uint32_t){m.group(2)}))"
+    body = re.sub(r"\(\s*((?:uint|int|char|void)\w*\s*\*+)\s*\)\s*"
+                  r"(\(((?:[^()]|\([^()]*\))*)\))",
+                  guest_addr_cast, body)
     # Ghidra `LAB_` symbols are both goto labels and data addresses. Keep the
     # macro for data uses, but give control-flow labels their own C names.
     body = re.sub(rf"\bgoto\s+{a.prefix}_lbl_([0-9a-fA-F]+)",

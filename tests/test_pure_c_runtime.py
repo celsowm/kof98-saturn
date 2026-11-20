@@ -17,8 +17,11 @@ SNIPPET_C = """#include <stdint.h>
 void guest_fn_1000()
 {
   uint32_t *unaff_A4;
+  int16_t sVar9;
   guest_mem_2000 = 0x1234;
   *unaff_A4 = guest_mem_2000;
+  sVar9 = 1;
+  guest_mem_2000 = *(uint32_t *)((int16_t)(sVar9 * 4) + 0xc1543c);
   return;
 }
 """
@@ -55,6 +58,8 @@ class TestPureCRuntime(unittest.TestCase):
                 capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertIn("1 dispatch entries", r.stdout)
+            generated = gen.read_text(errors="replace")
+            self.assertIn("g_mem + (uint32_t)(", generated)
             shutil.copy(TOOLS / "pure_c_state.h", d / "pure_c_state.h")
             shutil.copy(TOOLS / "pure_c_helpers.c", d / "pure_c_helpers.c")
             shutil.copy(TOOLS / "pure_c_main.c", d / "pure_c_main.c")
