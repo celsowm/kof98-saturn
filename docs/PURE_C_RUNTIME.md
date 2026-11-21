@@ -307,7 +307,10 @@ match. A full width-aware rewriter then rewrote 1,373 accesses
 Two bugs were found and fixed: accessor calls initially received the deref
 *value* instead of its address operand, and clang AST offsets require reading
 the source with `newline=''`. Equivalence improved from `0 MATCH` to
-`5 MATCH, 16 MISMATCH, 11 crash, 1 timeout` with the big-endian shim.
+`6 MATCH, 16 MISMATCH, 10 crash, 1 timeout` with the big-endian shim after two
+further fixes: accessor calls now receive the deref operand (address) rather
+than the deref text, and host pointers into `g_mem` used as addresses are
+converted with `- (uintptr_t)g_mem` before storing as guest addresses.
 
 181 overlapping/nested accesses are still skipped and pointer-valued/compound
 cases remain wrong. The experimental rewriter and shim live in
