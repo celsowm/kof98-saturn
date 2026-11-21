@@ -372,9 +372,18 @@ gaps that all have to be closed together:
    fall-through (`C116AA -> C116AE`) is insufficient; one C function per resume
    label with explicit guest-PC output is required.
 
-The big-endian rewriter closes gap 2 for the 70-routine subset (17 MATCH); gaps
-1 and 3 are still open and are the reason the full table cannot yet progress
-past `C116AA`.
+The big-endian rewriter closes gap 2 for the 70-routine subset (17 MATCH).
+
+**Gap 1 addressed (this round):** `local/decomp/ptrcast_rewrite.py` translates
+guest-address-to-pointer casts in the rewritten output, e.g.
+`(int8_t *)(G32(0xC116DA))` becomes `(int8_t *)(g_mem + G32(0xC116DA))`, while
+leaving function-symbol casts (`(code *)kof_fn_c12bde`) and already-translated
+pointer loads untouched. The AST rewriter also now excludes derefs through
+`code *` locals (Ghidra's data-in-code artifact) from conversion. A focused
+conversion of `c116aa_focus.c` confirmed the translations are correct; the
+70-routine equivalence stays at `17 MATCH` (no such casts there). Gap 3
+(resume-label control flow) remains open and is still the reason the full table
+cannot progress past `C116AA`.
 
 Until items 1-6 and the memory-model gap are closed, the static recomp remains
 the executable backend; the pure-C runtime is a proven, compilable and runnable
