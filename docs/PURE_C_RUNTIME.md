@@ -304,11 +304,17 @@ That offset problem was solved: preprocess with clang (`clang -E -P`), dump the
 AST with `-x cpp-output`, and read the source with `newline=''` so CRLF offsets
 match. A full width-aware rewriter then rewrote 1,373 accesses
 (413 x 8-bit, 273 x 16-bit, 582 x 32-bit, 24 x 64-bit) and the result compiled.
-Equivalence with a matching big-endian shim was measured as
-`0 MATCH, 12 MISMATCH, 20 crash, 1 timeout` — 181 overlapping/nested accesses
-were skipped and compound/pointer-valued cases are still wrong. The experiment
-stays under ignored `local/decomp/`; it is a real but incomplete implementation
-of the required conversion, not a regression of the validated path.
+Two bugs were found and fixed: accessor calls initially received the deref
+*value* instead of its address operand, and clang AST offsets require reading
+the source with `newline=''`. Equivalence improved from `0 MATCH` to
+`5 MATCH, 16 MISMATCH, 11 crash, 1 timeout` with the big-endian shim.
+
+181 overlapping/nested accesses are still skipped and pointer-valued/compound
+cases remain wrong. The experimental rewriter and shim live in
+`local/decomp/` (ignored) plus `tools/shim-be/` and
+`tools/build_pure_c_equiv_be.py` (EXPERIMENTAL, not part of the validated
+path). The validated runtime/gates are unchanged: `18 MATCH, 1 MISMATCH` and
+41/41 host tests.
 
 The validated word-swapped bridge was restored: 7,920 dispatches in 10 frames,
 equivalence `18 MATCH, 1 MISMATCH, 13 crash, 1 timeout`, 41/41 host tests,
