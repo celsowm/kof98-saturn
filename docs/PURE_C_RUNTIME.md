@@ -340,6 +340,42 @@ The validated word-swapped bridge was restored: 7,920 dispatches in 10 frames,
 equivalence `18 MATCH, 1 MISMATCH, 13 crash, 1 timeout`, 41/41 host tests,
 purity gate PASS.
 
+### Host-run evidence and the three remaining translation gaps (this round)
+
+A fresh 20-frame host run of the 2,001-entry table confirmed the current state:
+
+```
+[neogeorecomp] kof98: 2001 recompiled entry points
+[purec-trace] n=10000 pc=C116AA
+[purec] dispatches=15840 hits=15840 cycles=4055040
+```
+
+Every dispatch is the same stuck `C116AA` fragment; frame 15 is uniformly dark.
+Inspecting `kof_fn_c116aa` and the recomp `L_C116AA` shows three independent
+gaps that all have to be closed together:
+
+1. **Guest-address-to-pointer casts.** The decompiled C contains
+   `pcVar7 = (int8_t *)kof_mem_00c116da + 2`, i.e. a *guest* 32-bit address cast
+   directly to a host pointer. The recomp uses `ng_r8(0xC116DC)`. The generated
+   runtime translates register slots (`g_mem + value`) but not memory-loaded
+   pointer casts, so this dereference is invalid on the host. A complete
+   converter must wrap such casts as `(T *)(g_mem + guest_value)`.
+2. **Word-swapped bridge is width-limited.** `mapped_to_gmem()` swaps bytes in
+   16-bit words so native 16-bit reads work, but 32-bit and 8-bit native reads
+   of the same image are wrong. This is why a partial accessor conversion could
+   never reach parity and why the big-endian rewrite (which uses explicit
+   `G8/G16/G32` accessors and needs no swap) is the correct direction.
+3. **Decompiled `return` loses resume identity.** `kof_fn_c116aa` has an early
+   `return` for the byte-mismatch branch (recomp `bne C116DA`) and a final
+   `return` for the routine's `rts`. Both become a plain C return, so the bridge
+   cannot know which guest successor to install. A successor map keyed only by
+   fall-through (`C116AA -> C116AE`) is insufficient; one C function per resume
+   label with explicit guest-PC output is required.
+
+The big-endian rewriter closes gap 2 for the 70-routine subset (17 MATCH); gaps
+1 and 3 are still open and are the reason the full table cannot yet progress
+past `C116AA`.
+
 Until items 1-6 and the memory-model gap are closed, the static recomp remains
 the executable backend; the pure-C runtime is a proven, compilable and runnable
 alternative path.
