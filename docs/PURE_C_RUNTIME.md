@@ -385,6 +385,18 @@ conversion of `c116aa_focus.c` confirmed the translations are correct; the
 (resume-label control flow) remains open and is still the reason the full table
 cannot progress past `C116AA`.
 
+**Full-runtime big-endian conversion (this round):** `full_be_pipeline.py` and
+`assemble_full_be.py` convert the entire 2,082-function runtime in 21 chunks
+(the monolithic AST is ~2.5 GB and cannot be loaded into Python). The result is
+`local/decomp/kof_runtime_be.c` (6.1 MB) with 8,446 big-endian accessor calls
+and 9,599 g_mem-relative pointer casts. It compiles cleanly with gcc. Fixes
+needed along the way: `*(T **)&slot` now emits the slot's guest-address value
+(not the host address of the slot), prototypes/externs for `kof_case_*`,
+`caseD_*`, `kof_ptrfn_*` and the helper stubs are carried over, and a paren bug
+in the pointer-cast post-pass was corrected. This is conversion groundwork:
+gap 3 (resume-label control flow) and a non-word-swapped host bridge are still
+required before it can be run in the engine.
+
 Until items 1-6 and the memory-model gap are closed, the static recomp remains
 the executable backend; the pure-C runtime is a proven, compilable and runnable
 alternative path.
