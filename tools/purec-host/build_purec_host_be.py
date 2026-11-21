@@ -1,9 +1,4 @@
 #!/usr/bin/env python3
-# EXPERIMENTAL: big-endian adapter variant for kof_runtime_be.c. Uses a
-# non-word-swapped g_mem bridge and successor/rts PC propagation. Requires
-# CMAKE_C_FLAGS="-Wno-error=int-conversion -Wno-error=incompatible-pointer-types"
-# and an auto-generated stub file for called-only routines. Not a validated
-# path; see docs/PURE_C_RUNTIME.md.
 """Build a host KOF98 player whose guest routines run as generated pure C.
 
 The pinned upstream engine (deps/kof98recomp) is built from source but never

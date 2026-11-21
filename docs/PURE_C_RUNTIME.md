@@ -372,6 +372,37 @@ gaps that all have to be closed together:
    fall-through (`C116AA -> C116AE`) is insufficient; one C function per resume
    label with explicit guest-PC output is required.
 
+**Critical correction to the equivalence claim (this turn):** the harness
+declares MATCH on guest *memory* hash alone; `cpu_same` is informational.
+Re-running shows every "MATCH" has `cpu_same=0`, e.g.
+`MATCH pc=10008C mem=6720FDAE cpu_same=0`. So the 17/18 MATCH figure never
+meant register-level equivalence. This explains why a single correct
+big-endian C116AA dispatch still corrupts the run: `kof_fn_c116aa` has **zero**
+register write-backs (no `purec_slot_* =` and no `ng_cpu.*` writes), so A0/A1/
+D0/D7 and the condition codes stay at their entry values after the C function
+returns. The recomp sets all of those explicitly. Before any pure-C routine
+can drive the engine, the generated C must propagate register and flag changes
+back to `ng_cpu` — this is a fourth, independent gap.
+
+**Corrected BE host evidence:** after fixing the pointer-cast, nested
+slot-deref, multiplication-vs-deref, device-endianness, and rts-continuation
+bugs, the big-endian host runs with 1,987 entries and executes a clean
+`kof_runtime_be.c`. A 16-frame run gives:
+
+```
+[be-trace] n=1 pc=C116AA a4w=F3000010 next=C11026
+[exec] native blocks 1, interpreted instructions 381839, 17 uncovered entry points
+[purec] dispatches=1 hits=1 cycles=256
+```
+
+The single dispatch now returns control to the interpreter via a correct rts,
+but frame 15 is dark while the recomp baseline frame 15 has content. This is
+the same symptom as the earlier native rts-exit contract, now reproduced with
+correct endianness: the routine's missing register/flag write-back is the
+cause. Gap 2 (endianness) is therefore closed for the converted runtime; the
+remaining blockers are register/flag propagation and resume-label control
+flow.
+
 The big-endian rewriter closes gap 2 for the 70-routine subset (17 MATCH).
 
 **Gap 1 addressed (this round):** `local/decomp/ptrcast_rewrite.py` translates
