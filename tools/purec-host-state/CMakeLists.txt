@@ -1,0 +1,47 @@
+cmake_minimum_required(VERSION 3.21)
+project(kof98_purec_host C CXX)
+
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+
+# The pinned host engine, built from source but never modified.
+set(NG_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../deps/kof98recomp/neogeorecomp)
+add_subdirectory(${NG_DIR} ${CMAKE_BINARY_DIR}/neogeorecomp_build)
+
+# Generated adapter + runtime live under ignored local/purec-host/.
+set(GEN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../local/purec-host)
+file(GLOB RECOMP_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/../../local/ng_recomp_full256/recomp_*.c")
+
+add_executable(kof98_purec
+    ${GEN_DIR}/main.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../local/decomp/equiv_recomp_dispatch.c
+    helpers.c
+    ${GEN_DIR}/purec_adapter.c
+    ${GEN_DIR}/purec_runtime.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../deps/kof98recomp/src/game.c
+    ${RECOMP_SOURCES})
+file(GLOB PUREC_STUBS "${GEN_DIR}/*_stubs.c")
+if(PUREC_STUBS)
+    target_sources(kof98_purec PRIVATE ${PUREC_STUBS})
+endif()
+foreach(EXTRA "${GEN_DIR}/exit_manifest.c" "${GEN_DIR}/successors.c")
+    if(EXISTS ${EXTRA})
+        target_sources(kof98_purec PRIVATE ${EXTRA})
+    endif()
+endforeach()
+target_include_directories(kof98_purec PRIVATE
+    ${NG_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../deps/kof98recomp/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../shim-state
+    ${CMAKE_CURRENT_SOURCE_DIR}/../shim
+    ${GEN_DIR})
+target_compile_definitions(kof98_purec PRIVATE
+    KOF98_PLAYER
+    KOF98_ASSET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../deps/kof98recomp/assets")
+target_link_libraries(kof98_purec PRIVATE neogeorecomp musashi z80core ymfm m stdc++)
+
+if(WIN32)
+    # platform.c uses the Windows StackWalk64 API.
+    target_link_libraries(kof98_purec PRIVATE dbghelp)
+endif()

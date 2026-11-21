@@ -372,6 +372,27 @@ gaps that all have to be closed together:
    fall-through (`C116AA -> C116AE`) is insufficient; one C function per resume
    label with explicit guest-PC output is required.
 
+**Decompiler semantic error found (this turn):** even with correct endianness,
+register/flag propagation, and rts PC continuation, the single C116AA dispatch
+still yields a dark frame. Root cause is in the decompiled C itself, not the
+bridge. Ghidra emitted for `0xC116AE`:
+
+```c
+pcVar7 = (int8_t *)(*(uint32_t *)(g_mem + 0xC116DA)) + 2;
+```
+
+i.e. it decoded `lea ($2c,PC),A1` as an *indirect load* from `0xC116DA`. The
+recomp shows the instruction is `lea ($2c,PC),A1; ($c116dc)` — A1 is the
+**constant** `0xC116DC`. The bytes at `0xC116DA` are the `rts` opcode
+(`0x4E75`), so the decompiled pointer becomes `0x4E75....+2`, a garbage ROM
+address; the string compare reads the wrong data and returns early. No state
+propagation can fix a wrong address computation in the decompiled C.
+
+This means the decompilation has semantic errors at the instruction-decoding
+level, in addition to the missing register/flag/PC model. The recomp C is
+correct at both levels. A register/flags/PC layer alone cannot make the
+Ghidra-C backend playable; the decompiler output itself would need correction.
+
 **Definitive measurement (this turn):** with the equivalence harness changed
 to require BOTH memory and CPU equality (`tools/build_pure_c_equiv_cpu.py`),
 the result is **`0 MATCH, 24 MISMATCH, 8 crash, 1 timeout of 33`** — not one
