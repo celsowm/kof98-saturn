@@ -319,6 +319,23 @@ cases remain wrong. The experimental rewriter and shim live in
 path). The validated runtime/gates are unchanged: `18 MATCH, 1 MISMATCH` and
 41/41 host tests.
 
+**Major defect found and fixed (this round):** the rewriter was converting the
+dispatcher's NATIVE host-struct reads `ng_cpu.a[i]` / `ng_cpu.d[i]` into
+big-endian `g_mem` reads. That corrupted every register slot (22 assignments),
+which is why equivalence was stuck at 6 MATCH. Excluding any access containing
+`ng_cpu` from conversion raised the result to
+`17 MATCH, 7 MISMATCH, 8 crash, 1 timeout of 33` — now comparable to the
+validated native path (`18 MATCH, 1 MISMATCH, 13 crash`).
+
+**Remaining mismatches are decompilation width errors, not rewrite bugs.**
+Example `0x100762`: the m68k `move.w D0,(-$2,A1)` at `0x100770` writes a 16-bit
+word, but Ghidra decompiled it as `kof_mem_3c0000 = (uint32_t)in_D0w` (a 32-bit
+store). The native-endian harness masks this because the extra little-endian
+bytes are zero; the big-endian rewrite exposes it (`00 00 08 3D` vs the
+expected `08 3D`). `0x100576` is the same class at `0x3C0002`. These are
+upstream decompiler defects in the source C, not defects in the endianness
+converter, and cannot be fixed by access conversion alone.
+
 The validated word-swapped bridge was restored: 7,920 dispatches in 10 frames,
 equivalence `18 MATCH, 1 MISMATCH, 13 crash, 1 timeout`, 41/41 host tests,
 purity gate PASS.
