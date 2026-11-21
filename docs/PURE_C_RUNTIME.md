@@ -372,6 +372,15 @@ gaps that all have to be closed together:
    fall-through (`C116AA -> C116AE`) is insufficient; one C function per resume
    label with explicit guest-PC output is required.
 
+**Definitive measurement (this turn):** with the equivalence harness changed
+to require BOTH memory and CPU equality (`tools/build_pure_c_equiv_cpu.py`),
+the result is **`0 MATCH, 24 MISMATCH, 8 crash, 1 timeout of 33`** — not one
+routine preserves registers/flags. This is the fundamental reason the pure-C
+backend cannot drive the engine: the Ghidra decompilation models memory
+accesses but not the m68k register/flag state, so making it playable requires
+a full register/flags/PC propagation layer on top of the decompiled C (i.e.
+reimplementing what the static recompiler already emits).
+
 **Critical correction to the equivalence claim (this turn):** the harness
 declares MATCH on guest *memory* hash alone; `cpu_same` is informational.
 Re-running shows every "MATCH" has `cpu_same=0`, e.g.
